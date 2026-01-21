@@ -1,0 +1,20 @@
+# Core
+scrapy>=2.11.0
+PySocks>=1.7.1
+
+# HTML Parsing
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+
+# Discord Webhook
+requests>=2.31.0
+
+# Config
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Logging
+structlog>=24.1.0
+
+# CLI UI
+rich>=13.0.0

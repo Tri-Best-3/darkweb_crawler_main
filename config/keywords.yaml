@@ -1,0 +1,118 @@
+# 크롤링, 모니터링 키워드 설정
+# - 모든 스파이더에서 알림 기준으로 사용되는 목록입니다.
+# - 기본 정책: 타겟 매칭 시 알림, 조건부 키워드는 타겟과 함께 있을 때만 알림 전송
+
+targets:
+# 기업, 국가 등 타깃 키워드 설정
+# - 타겟 단독 매칭도 알림합니다. (CRITICAL)
+# - patterns.conditional은 타겟과 함께 매칭될 때만 알림합니다.
+
+  # 한국/정부
+  - korea
+  - korean company
+  - south korea
+  - gov.kr
+  
+  # 섹터
+  - bank
+  - financial
+  - telecom
+  - hospital
+  - medical records
+
+  # 기업명
+  - samsung
+  - lg electronics
+  - lg chem
+  - hyundai
+  - kia
+  - sk hynix
+  - sk telecom
+  - lotte
+  - posco
+  - hanwha
+  - gs retail
+  - kt corp
+  - cj cheiljedang
+  - doosan
+  - kakao
+  - naver
+  - coupang
+
+# 알림 우선순위 설정
+# - 아래 키워드 매칭 시 'Critical' 등급으로 알림이 갑니다.
+critical_keywords:
+  - admin panel
+  - root access
+  - vpn access
+  - rdp access
+  - fullz
+  - gov.kr
+  - leak site
+  - ransomware
+  - uncompressed data
+  - encrypted data
+
+# 정규식 패턴 및 설정
+patterns:
+  # 조건부 매칭 키워드는 targets와 함께 있을 때만 알림됩니다.
+  conditional:
+    # data_breach
+    - database leak
+    - data dump
+    - customer data
+    - employee records
+    - SQL dump
+    - fullz
+    - personal info
+    - kyc data
+    # credentials
+    - credential stuffing
+    - access for sale
+    - VPN access
+    - RDP access
+    - SSH access
+    - SSH credentials
+    - admin panel
+    - root access
+    - web shell
+    # ransomware
+    - ransomware leak
+    - leak site
+    - shame site
+    - negotiations failed
+    - proof of exfiltration
+    - LockBit
+    - BlackCat
+    - RansomHub
+    - encrypted data
+    # etc
+    - combolist
+    - combo
+    - leak
+    - leaked
+    - leaks
+    - dump
+    - dumps
+    - dumped
+    - database
+    - db
+    - breach
+    - breached
+    - hacked
+    - hack
+
+  # 연락처 추출 정규식
+  contacts:
+    telegram:
+      - "@([a-zA-Z0-9_]{5,32})"
+      - "t\\.me/([a-zA-Z0-9_]+)"
+      - "telegram[:\\s]+@?([a-zA-Z0-9_]+)"
+    email:
+      - "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+    discord:
+      - "discord[:\\s]+([^\\s,]+)"
+      - "discord\\.gg/([a-zA-Z0-9]+)"
+    tox:
+      - "([A-F0-9]{76})"
+      - "TOX[:\\s]+([A-F0-9]{76})"
