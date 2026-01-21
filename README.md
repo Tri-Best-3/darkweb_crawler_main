@@ -1,8 +1,15 @@
-# TriCrawl MVP
+<img width="983" height="624" alt="image" src="https://github.com/user-attachments/assets/b9b3c451-a7aa-4b33-b745-fc9127fe1549" /># TriCrawl MVP
 
 TriCrawl은 다크웹 및 딥웹의 기업 정보 유출을 모니터링하는 OSINT 크롤러입니다.
 Scrapy 프레임워크를 기반으로 하며, Docker화된 Tor 프록시를 통해 `.onion` 사이트에 안전하게 접근합니다.
 
+---
+<img width="983" height="624" alt="" src="https://github.com/user-attachments/assets/3b36fd4d-9b76-48c7-b6a2-54b243103803" />
+## MVP
+- docker-compose 사용
+- Rich UI 콘솔
+- Abyss(랜섬웨어 그룹, 데이터 변동 적음) 크롤링
+- DarkNetArmy(포럼, 데이터 변동 많음) 크롤링
 ---
 
 ## 특징
@@ -28,15 +35,15 @@ flowchart TD
 
     subgraph Middlewares ["🔌 Middlewares"]
         %% Both use Requests MW for stability
-        ReqMW["Requests Middleware\n(Custom Downloader)"]
+        ReqMW["Requests Middleware<br/>(Custom Downloader)"]
     end
 
     subgraph Pipelines ["🔄 Pipeline Chain"]
         direction TB
-        Arc["1. Archive\n(Stream Save)"]
-        Dedup["2. Deduplication\n(Hash Check)"]
-        Kwd["3. Keyword Filter\n(Risk Scoring)"]
-        Noti["4. Discord Notify\n(Async Webhook)"]
+        Arc["1. Archive<br/>(Stream Save)"]
+        Dedup["2. Deduplication<br/>(Hash Check)"]
+        Kwd["3. Keyword Filter<br/>(Risk Scoring)"]
+        Noti["4. Discord Notify<br/>(Async Webhook)"]
     end
 
     subgraph Output ["💾 Output"]
