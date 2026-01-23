@@ -12,6 +12,13 @@ from scrapy.utils.python import to_bytes
 logger = structlog.get_logger(__name__)
 
 class RequestsDownloaderMiddleware:
+    """
+    .onion 요청을 requests + socks5h로 처리하는 대체 다운로드 미들웨어.
+
+    목적:
+    - Scrapy 기본 다운로더의 socks 미지원/불안정 문제 회피
+    - .onion만 가로채고 나머지는 Scrapy 기본 흐름 유지
+    """
     def __init__(self, tor_proxy, settings):
         self.tor_proxy = tor_proxy
         self.settings = settings
@@ -23,6 +30,7 @@ class RequestsDownloaderMiddleware:
 
     @classmethod
     def from_crawler(cls, crawler):
+        """TOR_PROXY_HOST/PORT를 합쳐 requests 프록시 문자열을 구성."""
         # TOR_PROXYHOST, TOR_PROXYPORT 가져오기
         host = crawler.settings.get("TOR_PROXY_HOST", "127.0.0.1")
         port = crawler.settings.get("TOR_PROXY_PORT", "9050")
@@ -30,6 +38,7 @@ class RequestsDownloaderMiddleware:
         return cls(tor_proxy, crawler.settings)
 
     async def process_request(self, request, spider=None):
+        """요청을 가로채 .onion이면 async thread로 다운로드."""
         # .onion 주소에 대해서만 custom downloader 사용
         if ".onion" not in request.url:
              return None # Scrapy 기본 처리
@@ -40,7 +49,7 @@ class RequestsDownloaderMiddleware:
         return await asyncio.to_thread(self._download, request, spider)
 
     def _download(self, request, spider):
-        """실제 다운로드 로직(Thread 실행)"""
+        """실제 다운로드 로직(Thread 실행)."""
         settings = spider.settings if spider is not None else self.settings
         try:
             resp = requests.get(

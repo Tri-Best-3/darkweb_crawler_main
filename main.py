@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 def _configure_utf8_output():
+    """콘솔 출력 인코딩을 UTF-8로 고정해 한글 출력 깨짐을 방지."""
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     os.environ.setdefault("PYTHONUTF8", "1")
     for name in ("stdout", "stderr"):
@@ -92,6 +93,7 @@ except Exception:
 
 
 def format_duration(seconds):
+    """초 단위를 사람이 읽기 쉬운 mm:ss 또는 hh:mm:ss로 변환."""
     try:
         seconds = int(seconds)
     except Exception:
@@ -104,6 +106,12 @@ def format_duration(seconds):
 
 
 def _extract_stats_from_log(log_file):
+    """
+    Scrapy 로그 파일에서 주요 통계를 추출.
+
+    - 로그가 dictionary 형태로 출력된 라인에서 숫자만 파싱
+    - 없으면 빈 dict 반환
+    """
     try:
         text = log_file.read_text(encoding="utf-8", errors="ignore")
     except Exception:
@@ -128,6 +136,7 @@ def _extract_stats_from_log(log_file):
 
  
 def get_docker_status():
+    """Docker 컨테이너 상태 확인 (tricrawl 관련 컨테이너 우선)."""
     # Docker 컨테이너 상태 확인
     try:
         result = subprocess.run(
@@ -145,6 +154,7 @@ def get_docker_status():
 
 
 def get_tor_status():
+    """Tor 프록시 연결 상태 확인 (SOCKS5 연결 테스트)."""
     # Tor 프록시 연결 상태 확인
     host = os.getenv("TOR_PROXY_HOST", "127.0.0.1")
     port = int(os.getenv("TOR_PROXY_PORT", "9050"))
@@ -161,6 +171,7 @@ def get_tor_status():
 
 
 def get_available_spiders():
+    """사용 가능한 스파이더 목록 가져오기 (Scrapy 로더 → subprocess fallback)."""
     # 사용 가능한 스파이더 목록 가져오기(scrapy list)
     if HAS_SCRAPY:
         try:
@@ -189,6 +200,7 @@ def get_available_spiders():
 
 
 def get_webhook_status():
+    """Discord 웹훅 설정 상태 확인 (.env 기준)."""
     # Discord 웹훅 설정 상태 확인
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
     if webhook_url and "discord.com/api/webhooks" in webhook_url:
@@ -197,6 +209,7 @@ def get_webhook_status():
 
 
 def build_stage_panel(title, subtitle, icon_emoji, status_ok, status_text, action_hint):
+    """Rich Panel 형태의 상태 박스를 생성."""
     # Rich Panel로 스테이지 박스 생성
     status_icon = "[green]✅[/green]" if status_ok else "[red]❌[/red]"
     color = "green" if status_ok else "red"
@@ -216,6 +229,7 @@ def build_stage_panel(title, subtitle, icon_emoji, status_ok, status_text, actio
 
 
 def print_header():
+    """콘솔 상단 헤더/타이틀 출력."""
     # 헤더 출력
     clear_screen()
     if HAS_RICH:
@@ -230,6 +244,7 @@ def print_header():
 
 
 def print_guide():
+    """사전 준비 및 빠른 시작 안내 패널 출력."""
     # 가이드 패널 출력
     if not HAS_RICH:
         return
@@ -250,6 +265,7 @@ def print_guide():
 
 
 def status():
+    """Docker/Tor/Webhook의 전체 상태를 한 화면에 표시."""
     # 전체 상태 확인
     print_header()
     
@@ -279,6 +295,7 @@ def status():
 
 
 def check_docker_daemon():
+    """Docker 데몬 실행 여부 확인 (docker info)."""
     # Docker 데몬 실행 여부 확인
     try:
         # docker info 명령어로 데몬 접속 확인
@@ -294,6 +311,7 @@ def check_docker_daemon():
 
 
 def start_docker():
+    """Docker 컨테이너 시작 + Tor 연결 대기."""
     # Docker 시작 및 Tor 연결 대기
     # Docker Daemon 확인
     if not check_docker_daemon():
@@ -356,6 +374,7 @@ def start_docker():
 
 
 def stop_docker():
+    """Docker 컨테이너 종료."""
     # Docker 종료
     print("\n🐳 Stopping Docker containers...")
     try:
@@ -373,6 +392,7 @@ def stop_docker():
 
 
 def view_logs(lines=20):
+    """로그 파일을 OS 기본 프로그램으로 연다."""
     # 로그 파일 열기, 터미널 출력 방식에서 외부 프로그램 작동 방식으로(기본 프로그렘으로, 난 메모장)
     log_file = LOG_DIR / "last_run.log"
     if not log_file.exists():
@@ -392,6 +412,13 @@ def view_logs(lines=20):
 
 
 def run_crawler(spider="test", limit=None):
+    """
+    Scrapy 크롤러 실행 래퍼.
+
+    - config/crawler_config.yaml에서 days_to_crawl을 로드
+    - 실행 로그는 tricrawl/logs/last_run.log에 저장
+    - 스파이더는 LeakItem 데이터 컨트랙트를 지켜야 함
+    """
     # 크롤러 실행
     log_file = LOG_DIR / "last_run.log"
     # 스파이더별 표시 이름
@@ -510,11 +537,13 @@ def run_crawler(spider="test", limit=None):
 
 
 def clear_screen():
+    """콘솔 화면 지우기."""
     # 화면 지우기
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
 def print_menu():
+    """메인 메뉴 출력 (Rich/Plain 모드 자동 선택)."""
     # 메뉴 출력
     if HAS_RICH:
         table = Table(show_header=False, box=box.ROUNDED, border_style="blue")
@@ -538,6 +567,7 @@ def print_menu():
 
 
 def interactive_mode():
+    """메뉴 기반 인터랙티브 모드."""
     # 인터랙티브 모드 실행
     while True:
         status()
@@ -640,6 +670,7 @@ def interactive_mode():
 
 
 def main():
+    """CLI 진입점. 서브커맨드에 따라 실행 흐름 분기."""
     parser = argparse.ArgumentParser(description="TriCrawl Admin CLI")
     subparsers = parser.add_subparsers(dest="command")
     

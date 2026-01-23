@@ -10,7 +10,12 @@ logger = structlog.get_logger(__name__)
 
 
 class TorProxyMiddleware:
-    # Tor SOCKS5 프록시를 통한 요청 라우팅
+    """
+    Tor SOCKS5 프록시를 통한 요청 라우팅.
+
+    - .onion 요청은 강제로 Tor 프록시 적용
+    - 표면웹은 기본 연결(또는 별도 프록시)로 유지
+    """
     
     def __init__(self, tor_proxy: str):
         self.tor_proxy = tor_proxy
@@ -18,6 +23,7 @@ class TorProxyMiddleware:
         
     @classmethod
     def from_crawler(cls, crawler):
+        """Scrapy 설정에서 TOR_PROXY를 읽어 인스턴스를 만든다."""
         tor_proxy = crawler.settings.get("TOR_PROXY")
         if not tor_proxy:
             raise NotConfigured("TOR_PROXY 설정이 필요합니다")
@@ -27,10 +33,12 @@ class TorProxyMiddleware:
         return middleware
     
     def spider_opened(self, spider):
+        """스파이더 오픈 시 로깅용 정보 저장."""
         self._spider = spider
         logger.info("Tor 프록시 활성화", proxy=self.tor_proxy, spider=spider.name)
     
     def process_request(self, request, spider=None):
+        """요청 URL을 보고 Tor 프록시 적용 여부를 결정."""
         # URL에 따라 프록시 선택적 적용
         if spider is None:
             spider = self._spider

@@ -14,6 +14,14 @@ logger = structlog.get_logger(__name__)
 
 
 class ArchivePipeline:
+    """
+    ArchivePipeline
+
+    역할:
+    - 어떤 필터에도 걸리기 전, 모든 아이템을 JSONL로 즉시 저장
+    - author_contacts를 추출해 item에 주입 (후속 파이프라인에서 사용 가능)
+    - matched_keywords는 단순 키워드 포함 여부 기록 (정규식 경계 매칭 아님)
+    """
     
     def __init__(self, data_dir: Path, keywords_config: Path):
         self.data_dir = data_dir
@@ -33,6 +41,7 @@ class ArchivePipeline:
 
     @classmethod
     def from_crawler(cls, crawler):
+        """Scrapy 설정을 받아 파이프라인 인스턴스를 생성한다."""
         data_dir = Path("data")
         keywords_config = crawler.settings.get("KEYWORDS_CONFIG")
         pipeline = cls(data_dir, keywords_config)
@@ -40,6 +49,7 @@ class ArchivePipeline:
         return pipeline
         
     def open_spider(self, spider=None):
+        """스파이더별 archive_{spider}.jsonl 파일을 연다."""
         # 스파이더 시작 시 전용 아카이브 파일 오픈
         spider_obj = self._resolve_spider(spider)
         spider_name = spider_obj.name if spider_obj else "unknown"
@@ -55,6 +65,7 @@ class ArchivePipeline:
             self.file_handle = None
 
     def close_spider(self, spider=None):
+        """스파이더 종료 시 파일을 닫고 정리한다."""
         # 스파이더 종료 시 파일 닫기
         if self.file_handle:
             self.file_handle.close()
@@ -63,6 +74,7 @@ class ArchivePipeline:
             logger.info(f"[{spider_name}] 아카이브 파일 닫음")
 
     def _load_yaml(self, path: Path) -> dict:
+        """키워드/패턴 설정 YAML을 안전하게 로드한다 (`config/keywords.yaml`)."""
         try:
             import yaml
             with open(path, "r", encoding="utf-8") as f:
@@ -72,6 +84,7 @@ class ArchivePipeline:
             return {}
 
     def _extract_keywords(self, config: dict) -> set:
+        """설정 딕셔너리에서 모든 키워드를 평탄화하여 집합으로 만든다."""
         # 설정 딕셔너리에서 키워드 추출
         all_kw = set()
         for key, val in config.items():
@@ -83,6 +96,7 @@ class ArchivePipeline:
         return all_kw
     
     def _extract_contacts(self, text: str) -> dict:
+        """본문 텍스트에서 연락처(telegram/email/discord 등)를 정규식으로 추출."""
         # 텍스트에서 연락처 정보 추출
         contacts = {}
         if not text: return contacts
@@ -104,6 +118,16 @@ class ArchivePipeline:
         return contacts
 
     def process_item(self, item, spider=None):
+        """
+        아이템 처리 및 즉시 저장.
+
+        - item["author_contacts"]를 주입하여 후속 파이프라인에서 재사용 가능
+        - archive_entry는 공통 스키마로 저장해 분석 파이프라인이 쉽게 소비하도록 함
+        - 입력 item의 원천:
+          `tricrawl/spiders/abyss.py:AbyssSpider.parse_data_js`,
+          `tricrawl/spiders/darknet_army.py:DarkNetArmySpider.parse_post`
+        - contacts 패턴 출처: `config/keywords.yaml` → patterns.contacts
+        """
         # 아이템 처리 및 즉시 저장
         if not self.file_handle:
             return item
@@ -121,6 +145,7 @@ class ArchivePipeline:
         matched_keywords = [kw for kw in self.all_keywords if kw in text]
         
         # 정제된 아카이브 데이터
+        # 주의: 필드명은 데이터 분석/공유 시 공통 스키마로 취급됨
         archive_entry = {
             "spider": spider_name,
             "category": item.get("category", "Unknown"),
@@ -145,6 +170,7 @@ class ArchivePipeline:
         return item
 
     def _resolve_spider(self, spider):
+        """Scrapy deprecation 대응: spider 인스턴스를 안전하게 복원."""
         # 스파이더 객체 안전 확보(Scrapy deprecation 대응)
         if spider is not None:
             self._spider = spider

@@ -17,7 +17,14 @@ logger = structlog.get_logger(__name__)
 
 
 class AbyssSpider(scrapy.Spider):
-    """Abyss 랜섬웨어 유출 사이트 크롤러"""
+    """
+    Abyss 랜섬웨어 유출 사이트 크롤러.
+
+    데이터 컨트랙트:
+    - LeakItem의 필수 필드(source/title/url/author/timestamp)를 반드시 채움
+    - dedup_id는 "제목+본문" 기반으로 안정적으로 생성
+    - content는 요약/링크 포함 가능 (파이프라인에서 키워드 매칭 대상)
+    """
     
     name = "abyss"
     
@@ -37,6 +44,7 @@ class AbyssSpider(scrapy.Spider):
     }
     
     def __init__(self, *args, **kwargs):
+        """YAML 설정 로드 후 start_urls를 구성한다."""
         super(AbyssSpider, self).__init__(*args, **kwargs)
         
         # 설정 파일 로드 (Namespaced)
@@ -65,7 +73,7 @@ class AbyssSpider(scrapy.Spider):
             logger.error("Abyss Config: 'target_url' is missing. start_urls is empty.")
 
     def parse(self, response):
-        """Abyss 메인 페이지 파싱 -> data.js 요청"""
+        """Abyss 메인 페이지 파싱 -> data.js 요청."""
         # 정적 페이지가 비어있으므로 data.js를 찾아 요청
         logger.info(f"Abyss 메인 페이지 접근: {response.url}")
         
@@ -75,7 +83,17 @@ class AbyssSpider(scrapy.Spider):
         yield scrapy.Request(data_js_url, callback=self.parse_data_js, errback=self.errback_data_js)
 
     def parse_data_js(self, response):
-        """data.js 파싱 (JSON 데이터 추출)"""
+        """
+        data.js 파싱 (JSON 데이터 추출).
+
+        - JS 배열을 Python 객체로 변환한 뒤 LeakItem으로 매핑
+        - Spider 단계에서 필수 필드를 채우고, 파이프라인에서 후속 처리
+        - 생성 데이터의 소비처:
+          - dedup_id → `tricrawl/pipelines/dedup.py:DeduplicationPipeline.get_hash`
+          - title/content → `tricrawl/pipelines/keyword_filter.py:KeywordFilterPipeline.process_item`
+          - content → `tricrawl/pipelines/archive.py:ArchivePipeline._extract_contacts`
+          - timestamp/category → `tricrawl/pipelines/discord_notify.py:DiscordNotifyPipeline._build_embed`
+        """
         logger.info(f"data.js 로드 성공: {len(response.text)} bytes")
         
         # 디버그용 저장
@@ -154,6 +172,7 @@ class AbyssSpider(scrapy.Spider):
                     # 중복 체크는 DeduplicationPipeline에서 수행하므로 여기서는 패스
                         
                     item = LeakItem()
+                    # 필수 필드: source/title/url/author/timestamp
                     item["source"] = "Abyss Ransomware"
                     item["url"] = self.start_urls[0]
                     # 제목 접두어 제거 (Discord Target 필드로 이동)
@@ -191,5 +210,6 @@ class AbyssSpider(scrapy.Spider):
             logger.error(f"data.js 파싱 실패: {e}")
             
     def errback_data_js(self, failure):
+        """data.js 요청 실패 시 호출되는 errback."""
         logger.error(f"data.js 요청 실패: {failure.value}")
 

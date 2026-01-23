@@ -23,7 +23,14 @@ KST = timezone(timedelta(hours=9))
 
 
 class DiscordNotifyPipeline:
-    # Discord 웹훅 알림
+    """
+    Discord 웹훅 알림 파이프라인.
+
+    입력:
+    - matched_keywords, matched_targets, risk_level 등을 포함한 LeakItem
+    출력:
+    - Discord Embed JSON 전송 (비동기)
+    """
     
     def __init__(self, webhook_url: str, stats=None):
         self.webhook_url = webhook_url
@@ -32,6 +39,7 @@ class DiscordNotifyPipeline:
         
     @classmethod
     def from_crawler(cls, crawler):
+        """웹훅 URL을 로드하고 없으면 알림을 비활성화한다."""
         webhook_url = crawler.settings.get("DISCORD_WEBHOOK_URL")
         if not webhook_url:
             logger.warning("DISCORD_WEBHOOK_URL 미설정, 알림 비활성화")
@@ -39,11 +47,13 @@ class DiscordNotifyPipeline:
         return cls(webhook_url, crawler.stats)
 
     def open_spider(self, spider=None):
+        """통계를 초기화해 실행 요약 로그에서 누락되지 않게 한다."""
         if self._stats:
             # 항상 로그에 남도록 기본값 설정
             self._stats.set_value("discord_notify/sent", 0)
     
     def process_item(self, item, spider=None):
+        """아이템을 비동기 전송 큐에 넣고 즉시 반환한다."""
         # Discord로 알림 전송(비동기)
         if not self.webhook_url:
             return item
@@ -55,15 +65,18 @@ class DiscordNotifyPipeline:
         return item
 
     def close_spider(self, spider=None):
+        """전송 대기 중인 Deferred를 모두 기다린다."""
         if not self._pending:
             return None
         return defer.DeferredList(list(self._pending), consumeErrors=True)
 
     def _discard_pending(self, result, deferred_obj):
+        """완료된 Deferred를 pending set에서 제거."""
         self._pending.discard(deferred_obj)
         return result
 
     def _send_discord_webhook(self, item):
+        """실제 Discord 전송 로직 (스레드에서 실행)."""
         # 실제 전송 로직(Thread 실행)
         payload = self._build_embed(item)
         max_attempts = 3
@@ -105,6 +118,7 @@ class DiscordNotifyPipeline:
             return
 
     def _get_retry_after(self, response) -> float:
+        """429 응답의 대기 시간(retry_after)을 파싱한다."""
         try:
             # 1. 헤더 확인 (우선순위)
             header_val = response.headers.get("Retry-After")
@@ -119,6 +133,7 @@ class DiscordNotifyPipeline:
             return 1
 
     def _convert_to_kst(self, timestamp_str: str) -> str:
+        """UTC/ISO 문자열을 KST로 변환 (실패 시 원본 반환)."""
         # UTC/ISO 문자열을 KST로 변환
         if not timestamp_str or timestamp_str == "Unknown":
             return "Unknown"
@@ -140,6 +155,18 @@ class DiscordNotifyPipeline:
             return timestamp_str  # 변환 실패 시 원본 반환
 
     def _build_embed(self, item) -> dict:
+        """
+        LeakItem을 Discord Embed JSON으로 변환.
+
+        - matched_keywords, matched_targets, risk_level을 시각 요소에 반영
+        - content는 길이를 제한해 메시지 크기를 통제
+        - 필드 출처:
+          - matched_* / risk_level:
+            `tricrawl/pipelines/keyword_filter.py:KeywordFilterPipeline.process_item`
+          - title/content/timestamp/category/source:
+            `tricrawl/spiders/abyss.py:AbyssSpider.parse_data_js`,
+            `tricrawl/spiders/darknet_army.py:DarkNetArmySpider.parse_post`
+        """
         # Discord Embed 메시지 생성
         keywords = item.get("matched_keywords", [])
         risk_level = item.get("risk_level", "HIGH")

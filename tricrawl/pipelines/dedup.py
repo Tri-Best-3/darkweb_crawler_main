@@ -54,6 +54,7 @@ class DeduplicationPipeline:
 
     @classmethod
     def from_crawler(cls, crawler):
+        """Scrapy 설정값을 읽어 Dedup 파이프라인을 초기화한다."""
         # 프로젝트 루트의 data/ 폴더
         data_dir = Path("data")
         # MVP 단계 기본값(필요 시 settings.py에서 조정)
@@ -68,6 +69,7 @@ class DeduplicationPipeline:
         return pipeline
 
     def open_spider(self, spider=None):
+        """스파이더별 캐시 로드 및 실행 카운터 초기화."""
         # 스파이더 시작 시 전용 중복 캐시 로드
         spider_obj = self._resolve_spider(spider)
         spider_name = spider_obj.name if spider_obj else "unknown"
@@ -88,6 +90,10 @@ class DeduplicationPipeline:
         1. item['dedup_id'] 존재 시 최우선 사용(스파이더 정의 유니크 키)
         2. 없을 경우 제목 + 작성자
         3. 스파이더에서 지정한 ID가 있으면 우선 사용
+
+        데이터 출처:
+        - dedup_id: `tricrawl/spiders/abyss.py:AbyssSpider.parse_data_js`
+        - title/author: `tricrawl/spiders/darknet_army.py:DarkNetArmySpider.parse_post`
         """
         custom_id = item.get("dedup_id")
         if custom_id:
@@ -103,7 +109,7 @@ class DeduplicationPipeline:
         return gen_hash
 
     def process_item(self, item, spider=None):
-        """중복 검사 후 통과 또는 드롭"""
+        """중복 검사 후 통과 또는 드롭."""
         item_hash = self.get_hash(item)
         self.total_items += 1
         self._seen_this_run.add(item_hash)
@@ -119,6 +125,7 @@ class DeduplicationPipeline:
         return item
 
     def close_spider(self, spider=None):
+        """스파이더 종료 시 캐시 저장 + 요약 로그/알림."""
         # 스파이더 종료 시 캐시 저장 + 요약 로그/알림
         spider_obj = self._resolve_spider(spider)
         spider_name = spider_obj.name if spider_obj else "unknown"
@@ -131,6 +138,7 @@ class DeduplicationPipeline:
         self._notify_no_new(spider_name)
 
     def load_cache(self, spider_name):
+        """dedup_{spider}.json을 읽어 해시와 타임스탬프를 복원한다."""
         try:
             if self.cache_file and self.cache_file.exists():
                 with open(self.cache_file, "r", encoding="utf-8") as f:
@@ -163,6 +171,7 @@ class DeduplicationPipeline:
             self.seen_hashes = OrderedDict()
 
     def save_cache(self, spider_name):
+        """현재 해시 상태를 JSON 파일로 저장한다."""
         # 캐시 파일에 해시 저장(JSON + 상한 유지)
         if not self.cache_file:
             return
@@ -186,14 +195,17 @@ class DeduplicationPipeline:
             logger.warning(f"Cache save failed: {e}")
 
     def _hash_exists(self, item_hash: str) -> bool:
+        """이미 본 해시인지 확인."""
         return item_hash in self.seen_hashes
 
     def _add_hash(self, item_hash: str):
+        """새 해시를 추가하고 상한을 적용."""
         # 삽입 시각 기록(순서 유지)
         self.seen_hashes[item_hash] = time.time()
         self._prune_cache()
 
     def _prune_cache(self):
+        """기간/개수 상한에 따라 오래된 항목을 제거한다."""
         # 상한 조건에 따라 오래된 해시 제거
         if not self.seen_hashes:
             return
@@ -215,12 +227,14 @@ class DeduplicationPipeline:
                 self.seen_hashes.popitem(last=False)
 
     def _prune_unseen_entries(self):
+        """이번 실행에서 나타나지 않은 해시를 제거한다."""
         # 이번 실행에서 보이지 않은 캐시를 제거
         for entry_hash in list(self.seen_hashes.keys()):
             if entry_hash not in self._seen_this_run:
                 self.seen_hashes.pop(entry_hash, None)
 
     def _log_summary(self, spider_name):
+        """실행 요약을 구조화된 로그로 출력."""
         # 실행 요약을 로그에 남김
         logger.info(
             f"[{spider_name}] Dedup summary",
@@ -230,6 +244,7 @@ class DeduplicationPipeline:
         )
 
     def _notify_no_new(self, spider_name):
+        """신규 데이터가 없을 때 Discord로 상태 알림."""
         # 중복으로 인해 새 데이터가 없을 때 알림 전송
         if not self._notify_on_no_new:
             return
@@ -270,6 +285,7 @@ class DeduplicationPipeline:
             logger.warning(f"[{spider_name}] 신규 데이터 없음 알림 에러: {e}")
 
     def _resolve_spider(self, spider):
+        """Scrapy deprecation 대응: spider 인스턴스를 안전하게 복원."""
         if spider is not None:
             self._spider = spider
             return spider

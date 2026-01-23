@@ -1,7 +1,7 @@
 # 크롤러 설정
 # 전역 설정
 global:
-  days_to_crawl: 1        # 최근 3일 데이터 수집
+  days_to_crawl: 3        # 최근 3일 데이터 수집
 
 # 스파이더별 설정
 spiders:

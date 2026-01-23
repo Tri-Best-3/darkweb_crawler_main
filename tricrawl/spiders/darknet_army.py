@@ -14,7 +14,14 @@ logger = structlog.get_logger(__name__)
 
 
 class DarkNetArmySpider(scrapy.Spider):
-    """DarkNetArmy 포럼 크롤러"""
+    """
+    DarkNetArmy 포럼 크롤러 (XenForo).
+
+    데이터 컨트랙트:
+    - LeakItem의 필수 필드(source/title/url/author/timestamp)를 반드시 채움
+    - content는 요약/클린 텍스트로 구성 (키워드 필터 입력)
+    - category는 가능하면 게시판/분류명으로 채움
+    """
     
     name = "darknet_army"
     
@@ -35,6 +42,7 @@ class DarkNetArmySpider(scrapy.Spider):
     }
     
     def __init__(self, *args, **kwargs):
+        """YAML 설정을 로드하고 start_urls/board limits를 구성한다."""
         super(DarkNetArmySpider, self).__init__(*args, **kwargs)
         
         # 설정 파일 로드
@@ -88,7 +96,7 @@ class DarkNetArmySpider(scrapy.Spider):
         logger.info(f"Loaded Config - Global Days: {self.days_limit}, URLs: {len(self.start_urls)}")
 
     def get_max_pages_for_url(self, url):
-        """URL에 해당하는 게시판별 제한 확인"""
+        """URL에 해당하는 게시판별 제한 확인 (config의 boards 기준)."""
         # Config의 Endpoints 경로를 역추적하여 Key를 찾고, 그 Key로 Limits를 조회
         # 현재는 URL에 endpoint path가 포함되어 있는지 단순 문자열 매칭으로 확인
         for key, path in self.endpoints.items():
@@ -100,7 +108,12 @@ class DarkNetArmySpider(scrapy.Spider):
         return self.default_max_pages
 
     def parse(self, response):
-        """포럼 목록(Latest posts 등) 파싱 - XenForo List View"""
+        """
+        포럼 목록(Latest posts 등) 파싱 - XenForo List View.
+
+        - 리스트에서 제목/작성자/시간/링크만 추출
+        - 날짜 컷오프 로직으로 불필요한 페이지네이션을 줄임
+        """
         # 현재 페이지 카운트 (기본 1)
         page_count = response.meta.get('page_count', 1)
         
@@ -250,8 +263,19 @@ class DarkNetArmySpider(scrapy.Spider):
             yield response.follow(next_page, callback=self.parse, meta={'page_count': page_count + 1})
 
     def parse_post(self, response):
-        """게시물 상세 내용 파싱 - XenForo Thread View"""
+        """
+        게시물 상세 내용 파싱 - XenForo Thread View.
+
+        - LeakItem의 필수 필드를 채우고 content를 정제한다.
+        - Hidden Content 여부를 표기해 팀원이 쉽게 확인하도록 한다.
+        - 생성 데이터의 소비처:
+          - title/content → `tricrawl/pipelines/keyword_filter.py:KeywordFilterPipeline.process_item`
+          - content → `tricrawl/pipelines/archive.py:ArchivePipeline._extract_contacts`
+          - author/title → `tricrawl/pipelines/dedup.py:DeduplicationPipeline.get_hash`
+          - timestamp/category → `tricrawl/pipelines/discord_notify.py:DiscordNotifyPipeline._build_embed`
+        """
         item = LeakItem()
+        # 필수 필드: source/title/url/author/timestamp
         item["source"] = "DarkNetArmy"
         item["url"] = response.url
         

@@ -16,7 +16,14 @@ logger = structlog.get_logger(__name__)
 
 
 class KeywordFilterPipeline:
-    # 키워드 기반 필터링
+    """
+    키워드 기반 필터링 파이프라인.
+
+    핵심 규칙:
+    - targets 매칭 시 통과 + CRITICAL
+    - conditional 키워드는 targets와 함께 있을 때만 유효
+    - matched_keywords에는 conditional만 기록, matched_targets에는 targets만 기록
+    """
 
     def __init__(self, keywords_config: Path):
         self.config = self._load_keywords(keywords_config)
@@ -38,6 +45,7 @@ class KeywordFilterPipeline:
         self.target_patterns = self._compile_keyword_patterns(self.target_keywords)
 
     def _load_keywords(self, keywords_config: Path) -> dict:
+        """키워드 설정 파일을 로드한다 (실패 시 빈 설정)."""
         if not keywords_config:
             logger.warning("KEYWORDS_CONFIG 미설정, 키워드 필터 비활성")
             return {}
@@ -50,11 +58,13 @@ class KeywordFilterPipeline:
             return {}
 
     def _keyword_pattern(self, keyword: str) -> re.Pattern:
+        """단어 경계를 고려한 정규식을 만든다 (영숫자 경계 보호)."""
         escaped = re.escape(keyword)
         pattern = rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])"
         return re.compile(pattern)
 
     def _compile_keyword_patterns(self, keywords) -> dict:
+        """키워드 리스트를 정규식 패턴 딕셔너리로 컴파일."""
         patterns = {}
         for keyword in keywords:
             if not isinstance(keyword, str):
@@ -67,14 +77,26 @@ class KeywordFilterPipeline:
         return patterns
 
     def _normalize_text(self, text: str) -> str:
+        """공백 정규화 + 소문자화."""
         return re.sub(r"\s+", " ", text).lower()
 
     @classmethod
     def from_crawler(cls, crawler):
+        """Scrapy settings에서 KEYWORDS_CONFIG 경로를 받아 생성."""
         keywords_config = crawler.settings.get("KEYWORDS_CONFIG")
         return cls(keywords_config)
     
     def process_item(self, item, spider=None):
+        """
+        아이템 필터링 및 위험도 산정.
+
+        주의:
+        - item["matched_keywords"], item["matched_targets"], item["risk_level"]을 여기서 채움
+        - 다음 파이프라인(Discord)에서 이 값을 사용함:
+          `tricrawl/pipelines/discord_notify.py:DiscordNotifyPipeline._build_embed`
+        - 키워드 설정 출처:
+          `config/keywords.yaml` (targets/critical/conditional)
+        """
         # 아이템 필터링
         # 제목 + 본문에서 키워드 검색
         text = self._normalize_text(f"{item.get('title', '')} {item.get('content', '')}")
