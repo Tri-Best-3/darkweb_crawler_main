@@ -35,7 +35,6 @@ flowchart TD
     end
 
     subgraph Middlewares ["🔌 Middlewares"]
-        %% Both use Requests MW for stability
         ReqMW["Requests Middleware<br/>(Custom Downloader)"]
     end
 
@@ -52,11 +51,11 @@ flowchart TD
         Discord[("Discord")]
     end
 
-    %% Data Flow
-    Abyss & DNA --> |Traffic| Tor
-    Abyss & DNA --> ReqMW
+    Abyss & DNA --> |1. Request| ReqMW
+
+    ReqMW <==> |"2. External Traffic (Req/Res)"| Tor
     
-    ReqMW --> Arc
+    ReqMW --> |3. Processed Data| Arc
     
     Arc -- "Raw Data" --> Files
     Arc --> Dedup
@@ -70,6 +69,7 @@ flowchart TD
     style Noti fill:#5865F2,stroke:#5865F2,color:#fff
     style Discord fill:#5865F2,stroke:#5865F2,color:#fff
     style Files fill:#f1c40f,stroke:#f39c12
+    linkStyle 2 stroke:#3498db,stroke-width:4px
 ```
 
 ## 문서 가이드
