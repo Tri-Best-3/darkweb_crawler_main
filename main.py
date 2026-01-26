@@ -339,6 +339,33 @@ def start_docker():
                     cwd=str(PROJECT_ROOT),
                     capture_output=True, text=True
                 )
+
+                # Conflict 발생 시 자동 복구 시도
+                if result.returncode != 0 and "Conflict" in result.stderr:
+                    if status:
+                        status.update("[bold yellow]⚠️ 좀비 컨테이너 발견! 강제 정리 중...[/bold yellow]")
+                    
+                    # 1. 명시적 강제 삭제 (가장 확실함)
+                    subprocess.run(
+                        ["docker", "rm", "-f", "tricrawl-tor"],
+                        capture_output=True, text=True
+                    )
+                    
+                    # 2. Compose Down도 같이 실행 (네트워크 정리 등)
+                    subprocess.run(
+                        ["docker-compose", "down"],
+                        cwd=str(PROJECT_ROOT),
+                        capture_output=True, text=True
+                    )
+                    
+                    time.sleep(2)
+                    
+                    # 3. 재시도
+                    result = subprocess.run(
+                        ["docker-compose", "up", "-d"],
+                        cwd=str(PROJECT_ROOT),
+                        capture_output=True, text=True
+                    )
                 
                 if result.returncode != 0:
                     console.print(f"[bold red]❌ 실행 실패:[/bold red]\n{result.stderr}")
@@ -586,7 +613,7 @@ def interactive_mode():
         
         elif cmd == '1':
             start_docker()
-            # start_docker 내부에서 대기하므로 여기서는 바로 루프 재진입
+            input("\n  [Enter] Continue...")
             
         elif cmd == '2':
             stop_docker()

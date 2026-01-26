@@ -40,7 +40,7 @@ Spider → ArchivePipeline → DeduplicationPipeline → KeywordFilterPipeline �
 
 - Archive: 모든 아이템을 `archive_{spider}.jsonl`로 저장
 - Dedup: `dedup_id` 우선, 없으면 제목+작성자 해시
-- Filter: 타겟 매칭 시 CRITICAL, 조건부 키워드는 타겟과 함께만 유효
+- Filter: 타겟 매칭 시 CRITICAL, 조건부 키워드는 단독 매칭도 허용 (설정 의존)
 - Notify: Discord Embed 전송
 
 ---
@@ -161,7 +161,7 @@ ITEM_PIPELINES = {
 `config/keywords.yaml`만 수정하면 코드 변경 없이 즉시 반영됩니다.
 
 - `targets`: 타겟 키워드 (단독 매칭 시 CRITICAL)
-- `patterns.conditional`: 조건부 키워드 (타겟과 함께 있을 때만 유효)
+- `patterns.conditional`: 조건부 키워드 (단독 매칭 가능)
 - `critical_keywords`: 매칭 시 CRITICAL 고정
 
 ---

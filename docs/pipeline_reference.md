@@ -1,6 +1,6 @@
 # TriCrawl 파이프라인 참조
 
-> 마지막 업데이트: 2026-01-20
+> 마지막 업데이트: 2026-01-26
 
 이 문서는 TriCrawl의 각 파이프라인 역할과 설정을 상세히 설명합니다.
 
@@ -104,14 +104,15 @@ patterns:
 
 - `matched_keywords`는 조건부 키워드만 기록됩니다.
 - `matched_targets`는 타겟 키워드만 기록됩니다.
-- `rules.require_target`가 `true`이면 타겟 미매칭 시 DropItem 됩니다.
+- `rules.require_target`가 `false`로 설정되어 타겟 키워드가 없어도 조건부 키워드가 있으면 수집(알림)됩니다.
+- **드롭 조건**: 타겟 키워드도 없고, 조건부 키워드도 없는 경우에만 DropItem 됩니다.
 
 ### 필터링 예시
 
 ```
 samsung 단독      → ✅ 알림 (CRITICAL, matched_keywords 없음)
 
-leak 단독         → ❌ 드롭 (타겟 미매칭)
+leak 단독         → ✅ 알림 (High/Medium, matched_keywords: leak)
 samsung leak      → ✅ 알림 (CRITICAL, matched_keywords: leak / matched_targets: samsung)
 ```
 
@@ -122,6 +123,11 @@ samsung leak      → ✅ 알림 (CRITICAL, matched_keywords: leak / matched_tar
 **파일**: `tricrawl/pipelines/discord_notify.py`
 
 **역할**: 필터 통과 아이템을 Discord Webhook으로 전송
+
+### 동작 방식 (Rate Limit Safe)
+- **Queue & Worker**: 수집된 아이템은 즉시 큐에 쌓이고, 별도의 워커 스레드가 처리합니다.
+- **Throttling**: 디스코드 Rate Limit(429 Error) 방지를 위해 **1.0초 간격**으로 순차 전송합니다.
+- **Retry**: 전송 실패 시 최대 3회 재시도합니다.
 
 ### Embed 포맷
 

@@ -1,6 +1,6 @@
 # TriCrawl Atomic Specifications
 
-> 마지막 업데이트: 2026-01-21
+> 마지막 업데이트: 2026-01-26
 
 프로젝트의 모든 기능을 **최소 단위(Atomic Unit)**로 분해하여 정의한 명세서입니다.
 각 항목은 독립적으로 테스트 및 검증 가능해야 합니다.
@@ -59,7 +59,7 @@
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
 |----|----|-----------|---------------|
 | `PL-KWD-001` | Logic | **Target Matching** | `targets` 목록에 있는 키워드가 포함되면 무조건 매칭(Allow) 처리해야 한다. |
-| `PL-KWD-002` | Logic | **Conditional Logic** | `conditional` 키워드(예: leak)는 단독으로 매칭되지 않고, `targets`와 함께 있을 때만 유효해야 한다. |
+| `PL-KWD-002` | Logic | **Conditional Logic** | `conditional` 키워드(예: leak)는 단독으로 매칭되어도 알림을 보낼 수 있어야 한다 (`require_target: false` 기본값 적용). |
 | `PL-KWD-003` | Logic | **Risk Scoring** | 매칭 결과에 따라 `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` 등급을 부여해야 한다. |
 | `PL-KWD-004` | Action | **Drop Item** | 매칭되는 키워드가 하나도 없을 경우 `DropItem` 예외를 발생시켜야 한다. |
 
@@ -68,7 +68,7 @@
 |----|----|-----------|---------------|
 | `PL-NOT-001` | UI | **Embed Formatting** | 저장된 데이터 필드를 사용하여 보기 좋은 Discord Embed JSON을 생성해야 한다. |
 | `PL-NOT-002` | UI | **Color Coding** | 위험도에 따라 측면 색상을 지정해야 한다. (CRITICAL: `0xff0000`/Red, HIGH: `0xe74c3c`/Orange, MEDIUM: `0xf39c12`/Yellow, LOW: `0x2ecc71`/Green) |
-| `PL-NOT-003` | Net | **Rate Limiting** | Discord API의 `429` 응답 시 `Retry-After` 값(헤더 또는 바디)을 준수하여 대기해야 한다. |
+| `PL-NOT-003` | Net | **Rate Limiting** | Discord API의 Rate Limit 방지를 위해 **1.0초 간격**으로 순차 전송(Queueing)해야 한다. |
 | `PL-NOT-004` | Logic | **Async Handling** | 알림 전송 로직이 메인 크롤링 루프(Blocking)를 방해하지 않도록 비동기/스레드로 처리해야 한다. |
 
 ## 4. Admin CLI (CLI)
