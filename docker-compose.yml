@@ -1,0 +1,10 @@
+services:
+  tor:
+    image: dperson/torproxy:latest
+    container_name: tricrawl-tor
+    ports:
+      - "9050:9050"   #SOCKS5 프록시
+      - "9051:9051"   #제어 포트
+    environment:
+      - TOR_NewCircuitPeriod=30
+    restart: unless-stopped
