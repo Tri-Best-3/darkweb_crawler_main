@@ -22,7 +22,7 @@ class LeakItem(scrapy.Item):
     - 파이프라인이 참조하는 필드는 타입을 지켜야 합니다.
 
     Data lineage (대표 예시):
-    - source/title/url/author/timestamp:
+    - source/title/url/author/timestamp/site_type/category:
       `tricrawl/spiders/abyss.py:AbyssSpider.parse_data_js`,
       `tricrawl/spiders/darknet_army.py:DarkNetArmySpider.parse_post`
     - dedup_id:
@@ -43,7 +43,9 @@ class LeakItem(scrapy.Item):
 
     # 권장 필드(없으면 빈 값으로 보정 권장)
     content = scrapy.Field()   # 본문(요약 가능)
-    category = scrapy.Field()  # 게시판/분류명
+    content = scrapy.Field()   # 본문(요약 가능)
+    category = scrapy.Field()  # 게시판/분류명 (예: "Leaked Databases")
+    site_type = scrapy.Field() # 사이트 유형 (예: "Ransomware", "Forum")
 
     # 파이프라인이 채우거나 참조하는 필드
     matched_keywords = scrapy.Field()  # 조건부 키워드 매칭 결과(list[str])

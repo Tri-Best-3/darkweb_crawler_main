@@ -38,8 +38,8 @@
 Spider → ArchivePipeline → DeduplicationPipeline → KeywordFilterPipeline → DiscordNotifyPipeline
 ```
 
-- Archive: 모든 아이템을 `archive_{spider}.jsonl`로 저장
-- Dedup: `dedup_id` 우선, 없으면 제목+작성자 해시
+- Archive: Supabase (`darkweb_leaks` Table)에 저장 (ArchivePipeline은 비활성)
+- Dedup: Supabase DB의 `dedup_id`를 기준 (Spider 주입 최적화 적용)
 - Filter: 타겟 매칭 시 CRITICAL, 조건부 키워드는 단독 매칭도 허용 (설정 의존)
 - Notify: Discord Embed 전송
 
@@ -70,6 +70,8 @@ class NewSiteSpider(scrapy.Spider):
             item["url"] = response.urljoin(post.css("a::attr(href)").get())
             item["author"] = post.css(".author::text").get() or "Unknown"
             item["timestamp"] = datetime.now(timezone.utc).isoformat()
+            item["site_type"] = "Forum" # or "Ransomware"
+            item["category"] = "General"
             item["content"] = ""
             yield item
 ```
@@ -86,7 +88,7 @@ class NewSiteSpider(scrapy.Spider):
 ```python
 custom_settings = {
     "DOWNLOADER_MIDDLEWARES": {
-        "tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware": 543,
+        "tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware": 900,
         "tricrawl.middlewares.TorProxyMiddleware": None,
         "scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware": None,
     }

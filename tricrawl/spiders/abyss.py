@@ -37,7 +37,7 @@ class AbyssSpider(scrapy.Spider):
         'DEDUP_PRUNE_UNSEEN': True,
         # .onion 요청은 requests 기반 다운로드로 처리 (Scrapy 기본 다운로더의 socks 미지원 회피)
         'DOWNLOADER_MIDDLEWARES': {
-            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 543,
+            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 900,
             'tricrawl.middlewares.TorProxyMiddleware': None,
             'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': None,
         }
@@ -179,7 +179,8 @@ class AbyssSpider(scrapy.Spider):
                     item["title"] = str(title).strip()
                     item["author"] = "Abyss"
                     item["timestamp"] = current_time
-                    item["category"] = "Ransomware"
+                    item["site_type"] = "Ransomware"
+                    item["category"] = "General" # 랜섬웨어는 보통 단일 페이지라 General로 통일
 
                     # 내용 기반 ID로 업데이트 감지
                     # Title + Description Hash
@@ -198,7 +199,7 @@ class AbyssSpider(scrapy.Spider):
                     if short_desc:
                          content_parts.insert(0, f"[Short] {short_desc}\n")
                         
-                    content_parts.append("\n[Detected on Abyss Leak Site]")
+
                     item["content"] = "\n".join(content_parts)
                     
                     yield item

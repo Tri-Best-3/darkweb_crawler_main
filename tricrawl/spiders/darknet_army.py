@@ -35,7 +35,7 @@ class DarkNetArmySpider(scrapy.Spider):
         'COOKIES_ENABLED': True,
         # DarkNet 전용 미들웨어 사용
         'DOWNLOADER_MIDDLEWARES': {
-            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 543,
+            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 900,
             'tricrawl.middlewares.TorProxyMiddleware': None,
             'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': None,
         }
@@ -240,6 +240,20 @@ class DarkNetArmySpider(scrapy.Spider):
             }
 
             if link and is_recent:
+                # [Optimization] Pre-check Dedup ID
+                # 파이프라인에서 주입된 seen_ids가 있다면, 요청 전에 미리 거른다.
+                # Tor 요청은 매우 느리므로(5~10초), 중복 요청을 막는 것이 성능 핵심.
+                import hashlib
+                # 주의: parse_post와 동일한 해시 로직이어야 함 (MD5 of URL)
+                # link는 이미 resolve된 절대경로여야 하는데, response.follow는 상대경로도 받음.
+                # 안전을 위해 response.urljoin으로 절대경로 변환 후 해시
+                abs_link = response.urljoin(link)
+                pre_calc_id = hashlib.md5(abs_link.encode()).hexdigest()
+                
+                if hasattr(self, "seen_ids") and pre_calc_id in self.seen_ids:
+                    logger.debug(f"Skipping duplicate (Pre-check): {title[:15]}...")
+                    continue
+
                 # 상세 페이지 크롤링 요청
                 yield response.follow(link, callback=self.parse_post, meta=meta_data)
 
@@ -279,6 +293,10 @@ class DarkNetArmySpider(scrapy.Spider):
         item["source"] = "DarkNetArmy"
         item["url"] = response.url
         
+        # ID 생성 (URL 기반 - 포럼은 URL이 고유함)
+        import hashlib
+        item["dedup_id"] = hashlib.md5(response.url.encode()).hexdigest()
+        
         # 1. 메타데이터 복원 (List View에서 가져온 정보 우선)
         meta_title = response.meta.get('title')
         meta_author = response.meta.get('author')
@@ -316,7 +334,7 @@ class DarkNetArmySpider(scrapy.Spider):
                 if text:
                     content_parts.append(text)
             
-            dirty_content = "\n".join(content_parts)
+            dirty_content = "\\n".join(content_parts)
             
             # Telegram/Contact 추출 (Hidden 밖의 정보가 중요)
             # a tag의 href나 텍스트에서 텔레그램 링크 찾기
@@ -328,9 +346,9 @@ class DarkNetArmySpider(scrapy.Spider):
             
             # Hidden일 경우 경고 문구 추가
             if is_hidden:
-                dirty_content = f"🔒 [Hidden Content] (Requires Reaction)\n\n" + dirty_content
+                dirty_content = f"🔒 [Hidden Content] (Requires Reaction)\\n\\n" + dirty_content
                 if contacts:
-                    dirty_content += f"\n\n📞 Found Contacts:\n" + "\n".join(contacts)
+                    dirty_content += f"\\n\\n📞 Found Contacts:\\n" + "\\n".join(contacts)
 
             item["content"] = dirty_content[:5000] # 길이 제한
             
@@ -346,23 +364,23 @@ class DarkNetArmySpider(scrapy.Spider):
             # 상세 페이지의 시간은 다를 수 있음 (게시물 수정 시간 등)
             item["timestamp"] = meta_time
 
-            # 카테고리 추출 (Breadcrumbs)
-            # .p-breadcrumbs -> li -> a -> span
-            # 보통 마지막에서 2번째가 게시판 이름 (마지막은 현재 글 제목일 수 있음)
-            # 여기서는 안전하게 breadcrumbs 텍스트 전체를 가져오거나 특정 위치를 파싱
+            # 카테고리 추출 및 데이터 정규화 - DB 컬럼 분리 적용
+            # site_type="Forum", category="[게시판이름]"
+            item["site_type"] = "Forum"
+            
             breadcrumbs = response.css(".p-breadcrumbs li a span::text").getall()
             if breadcrumbs:
-                # "Home > Forums > Cat > Board" 형태
-                # 보통 맨 뒤가 게시판 이름
-                item["category"] = breadcrumbs[-1]
+                # "Home > Forums > Cat > Board" -> "Board"만 깔끔하게 저장
+                item["category"] = breadcrumbs[-1].strip()
             else:
-                 item["category"] = "Unknown"
+                 item["category"] = "General"
                 
         else:
             # 구조가 다를 경우 전체 텍스트 fallback
             item["content"] = " ".join(response.css("body *::text").getall()).strip()[:1000]
             item["author"] = meta_author or "Unknown"
             item["timestamp"] = meta_time
+            item["site_type"] = "Forum"
             item["category"] = "Unknown"
         
         # 데이터 클리닝
@@ -370,7 +388,3 @@ class DarkNetArmySpider(scrapy.Spider):
             item["author"] = item["author"].strip()
             
         yield item
-
-
-
-
