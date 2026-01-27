@@ -6,7 +6,7 @@ import asyncio
 import requests
 import structlog
 from scrapy.http import HtmlResponse
-from scrapy.downloadermiddlewares.retry import RetryMiddleware
+# from scrapy.downloadermiddlewares.retry import RetryMiddleware
 from scrapy.utils.python import to_bytes
 
 logger = structlog.get_logger(__name__)
@@ -51,23 +51,49 @@ class RequestsDownloaderMiddleware:
     def _download(self, request, spider):
         """실제 다운로드 로직(Thread 실행)."""
         settings = spider.settings if spider is not None else self.settings
+        
+        # 1. Scrapy Request Header -> requests Header 변환
+        # (CookiesMiddleware가 채워준 Cookie 헤더도 여기서 넘어감)
+        # requests.headers는 dict를 기대함
+        req_headers = {}
+        if request.headers:
+            for k, v in request.headers.items():
+                # Scrapy 헤더는 bytes 리스트 형태
+                key_str = to_bytes(k).decode('latin1')
+                val_str = to_bytes(v[0]).decode('latin1')
+                req_headers[key_str] = val_str
+
+        # User-Agent 보강
+        if "User-Agent" not in req_headers:
+             req_headers["User-Agent"] = settings.get("USER_AGENT")
+
         try:
             resp = requests.get(
                 request.url,
                 proxies=self.proxies,
                 timeout=int(settings.get('DOWNLOAD_TIMEOUT', 60)),
                 verify=settings.getbool("VERIFY_SSL", True),
-                headers={
-                    "User-Agent": settings.get("USER_AGENT")
-                }
+                headers=req_headers
             )
 
+            # 2. requests Header -> Scrapy Response Header 변환
+            # (Set-Cookie 등 응답 헤더를 Scrapy로 전달)
+            # 주의: requests는 이미 content를 디코딩했으므로, 
+            # 'Content-Encoding: gzip' 헤더가 남아있으면 Scrapy가 또 디코딩을 시도하다 에러남(Not a gzipped file).
+            # 따라서 Content-Encoding, Content-Length는 제거하고 넘겨야 함.
+            resp_headers = {}
+            for k, v in resp.headers.items():
+                if k.lower() in ['content-encoding', 'content-length']:
+                    continue
+                resp_headers[k] = v
+            
             return HtmlResponse(
                 url=request.url,
                 status=resp.status_code,
                 body=resp.content,
                 encoding=resp.encoding or 'utf-8',
-                request=request
+                request=request,
+                headers=resp_headers
             )
 
         except Exception as e:
