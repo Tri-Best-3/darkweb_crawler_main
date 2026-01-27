@@ -12,7 +12,7 @@ Scrapy 프레임워크를 기반으로 하며, Docker화된 Tor 프록시를 통
 
 ### 2026-01-27
 - PostgreSQL(Supabase)로 DB 구성, 로컬 파일 아카이빙을 제거하고 Supabase DB(`darkweb_leaks`)를 SSOT로 격상
-- 데이터베이스 작업 중 알림이 너무 많이 와서 켜고 끄기 추가함(.env에 저장됨)
+- 데이터베이스 작업 중 알림이 너무 많이 와서 켜기/끄기 추가함(.env에 저장됨)
 - 기존 jsonl 저장 로직은 덤프 기능으로 변경, supabase db 데이터를 가져와서 jsonl로 저장
 - 중복 로직 개선 : `DeduplicationPipeline`에서 로드한 중복 ID를 스파이더에게 주입하여, 불필요한 Tor 요청을 네트워크 단에서 사전 차단
 - 그밖에 DarkNetArmy 스파이더 버그 수정 및 ID 생성 로직 URL해시 기반으로 통일해서 중복 처리 빨라짐
