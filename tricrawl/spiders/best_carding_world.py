@@ -172,6 +172,7 @@ class BestCardingWorldSpider(scrapy.Spider):
             item["timestamp"] = ts_iso
             item["content"] = ""
             item["category"] = "data_breach"
+            item["site_type"] = "Forum"
 
             # yield item
 
