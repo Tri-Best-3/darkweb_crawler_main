@@ -23,7 +23,7 @@
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
 |----|----|-----------|---------------|
 | `SPD-COM-001` | Input | **Start URLs** | 스파이더 시작 시 `start_urls` 리스트를 순차적으로 로드해야 한다. |
-| `SPD-COM-002` | Output | **Item 생성** | 모든 파싱 결과는 `LeakItem` 표준 스키마(title, url, source 등)를 준수해야 한다. |
+| `SPD-COM-002` | Output | **Item 생성** | 모든 파싱 결과는 `LeakItem` 표준 스키마(title, url, source, **site_type**, **category** 등)를 준수해야 한다. |
 
 ### 2.2. Abyss Spider (SPD-ABY)
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
@@ -34,7 +34,7 @@
 ### 2.3. DarkNetArmy Spider (SPD-DNA)
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
 |----|----|-----------|---------------|
-| `SPD-DNA-001` | Net | **Requests Middleware** | Scrapy 기본 엔진 대신 `requests` + `PySocks` 미들웨어를 통해 통신해야 한다. |
+| `SPD-DNA-001` | Net | **Requests Middleware** | Scrapy 기본 엔진 대신 `requests` + `PySocks`를 사용하며, **우선순위 900**으로 미뤄 쿠키(CookiesMiddleware)를 포함해야 한다. |
 | `SPD-DNA-002` | Parser | **XenForo List** | 게시판 리스트 페이지에서 제목, 링크, 작성자, 작성일을 추출해야 한다. |
 | `SPD-DNA-003` | Parser | **Hidden Content** | "Reply to see" 등의 숨겨진 콘텐츠가 있을 경우, 이를 별도 표시하거나 감지해야 한다. |
 | `SPD-DNA-004` | Filter | **Date Cutoff** | 설정된 날짜(`days_to_crawl`)보다 오래된 게시물은 파싱 단계에서 드롭해야 한다. |
@@ -51,9 +51,9 @@
 ### 3.2. Deduplication Pipeline (PL-DED)
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
 |----|----|-----------|---------------|
-| `PL-DED-001` | Logic | **ID Logic** | `dedup_id` 필드가 있으면 최우선 사용하고, 없으면 `제목`+`작성자` 해시를 생성해야 한다. |
-| `PL-DED-002` | Storage | **Persistence** | 프로그램 재시작 시에도 중복 기록이 유지되도록 `dedup_{spider}.json`을 로드해야 한다. |
-| `PL-DED-003` | Logic | **Cache Pruning** | 설정된 기간(`DEDUP_MAX_DAYS`)이 지난 해시 키는 만료 처리해야 한다. |
+| `PL-DED-001` | Logic | **ID Logic** | `dedup_id` 필드는 스파이더가(특히 URL 기반) 우선 생성해야 하며, 없으면 파이프라인이 생성한다. |
+| `PL-DED-002` | Storage | **Persistence** | 프로그램 시작 시 **Supabase**에서 기존 ID를 로드하여 **스파이더에게 주입(Injection)** 해야 한다. |
+| `PL-DED-003` | Logic | **Pre-filtering** | 주입된 ID 목록을 기반으로 스파이더는 중복 URL에 대한 **요청 전송을 사전에 차단**해야 한다. |
 
 ### 3.3. Keyword Filter Pipeline (PL-KWD)
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
@@ -61,12 +61,12 @@
 | `PL-KWD-001` | Logic | **Target Matching** | `targets` 목록에 있는 키워드가 포함되면 무조건 매칭(Allow) 처리해야 한다. |
 | `PL-KWD-002` | Logic | **Conditional Logic** | `conditional` 키워드(예: leak)는 단독으로 매칭되어도 알림을 보낼 수 있어야 한다 (`require_target: false` 기본값 적용). |
 | `PL-KWD-003` | Logic | **Risk Scoring** | 매칭 결과에 따라 `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` 등급을 부여해야 한다. |
-| `PL-KWD-004` | Action | **Drop Item** | 매칭되는 키워드가 하나도 없을 경우 `DropItem` 예외를 발생시켜야 한다. |
+| `PL-KWD-004` | Action | **Tagging** | 매칭되는 키워드가 없으면 `DropItem` 대신 `risk_level='NONE'`으로 태깅하여 통과시켜야 한다(Archive All). |
 
 ### 3.4. Discord Notify Pipeline (PL-NOT)
 | ID | 구분 | 기능 정의 | 세부 요구사항 |
 |----|----|-----------|---------------|
-| `PL-NOT-001` | UI | **Embed Formatting** | 저장된 데이터 필드를 사용하여 보기 좋은 Discord Embed JSON을 생성해야 한다. |
+| `PL-NOT-001` | UI | **Embed Formatting** | 저장된 데이터 필드(Type, Category 포함)를 사용하여 보기 좋은 Discord Embed JSON을 생성해야 한다. |
 | `PL-NOT-002` | UI | **Color Coding** | 위험도에 따라 측면 색상을 지정해야 한다. (CRITICAL: `0xff0000`/Red, HIGH: `0xe74c3c`/Orange, MEDIUM: `0xf39c12`/Yellow, LOW: `0x2ecc71`/Green) |
 | `PL-NOT-003` | Net | **Rate Limiting** | Discord API의 Rate Limit 방지를 위해 **1.0초 간격**으로 순차 전송(Queueing)해야 한다. |
 | `PL-NOT-004` | Logic | **Async Handling** | 알림 전송 로직이 메인 크롤링 루프(Blocking)를 방해하지 않도록 비동기/스레드로 처리해야 한다. |

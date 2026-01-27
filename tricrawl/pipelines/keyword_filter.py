@@ -111,39 +111,45 @@ class KeywordFilterPipeline:
             keyword for keyword, pattern in self.target_patterns.items() if pattern.search(text)
         ]
 
-        # require_target 옵션이 켜져있는데 타겟 매칭이 없으면 드롭
-        # (단, 조건부 키워드가 있더라도 타겟이 없으면 드롭됨 - 설정에 따름)
-        if self.require_target and not target_matched:
-            raise DropItem(f"타겟 키워드 미매칭: {item.get('title', '')[:30]}")
-
-        # 조건부와 타겟 둘 다 없으면 드롭
-        if not matched and not target_matched:
-            raise DropItem(f"키워드 매칭 없음: {item.get('title', '')[:30]}")
-
+        # require_target 옵션이 켜져있는데 타겟 매칭이 없으면 드롭하지 않고 NONE 태그
+        # (기존: DropItem -> 변경: risk_level="NONE")
+        
         item["matched_keywords"] = matched
         if target_matched:
             item["matched_targets"] = target_matched
 
         high_risk_matches = [kw for kw in matched if kw in self.high_risk_keywords]
         
-        if target_matched:
-            # 타겟(기업명) 매칭 시 최상위 위험도
-            item["risk_level"] = "CRITICAL"
-        elif high_risk_matches:
-            item["risk_level"] = "CRITICAL"
-        elif len(matched) >= 3:
-            item["risk_level"] = "HIGH"
-        elif len(matched) >= 2:
-            item["risk_level"] = "MEDIUM"
+        # Risk Level 산정
+        if self.require_target and not target_matched:
+            # require_target=True인데 타겟이 없으면 -> 알림 발송 X (Archive Only)
+            # 조건부 키워드가 아무리 많아도 타겟 연관성 없으면 무시
+            item["risk_level"] = "NONE"
         else:
-            item["risk_level"] = "LOW"
+            # 타겟이 있거나, require_target=False인 경우 -> 키워드 기반 위험도 산정
+            if target_matched:
+                item["risk_level"] = "CRITICAL"
+            elif high_risk_matches:
+                item["risk_level"] = "CRITICAL"
+            elif len(matched) >= 3:
+                item["risk_level"] = "HIGH"
+            elif len(matched) >= 2:
+                item["risk_level"] = "MEDIUM"
+            elif len(matched) == 1:
+                item["risk_level"] = "LOW"
+            else:
+                item["risk_level"] = "NONE"
 
-        logger.info(
-            "키워드 매칭",
-            title=item.get("title", "")[:30],
-            keywords=matched,
-            risk=item["risk_level"],
-            targets=target_matched,
-        )
+        # 로깅 (매칭된 경우만 INFO, 아니면 DEBUG)
+        if item["risk_level"] != "NONE":
+            logger.info(
+                "키워드 매칭",
+                title=item.get("title", "")[:30],
+                keywords=matched,
+                risk=item["risk_level"],
+                targets=target_matched,
+            )
+        else:
+            logger.debug("키워드 미매칭 (Archive Only)", title=item.get("title", "")[:30])
 
         return item
