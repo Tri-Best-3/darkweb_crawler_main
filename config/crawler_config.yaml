@@ -31,3 +31,7 @@ spiders:
   # Abyss
   abyss:
     target_url: "http://3ev4metjirohtdpshsqlkrqcmxq6zu3d7obrdhglpy5jpbr7whmlfgqd.onion/"
+
+  bfdx:
+    boards:
+      "main-board": 1
