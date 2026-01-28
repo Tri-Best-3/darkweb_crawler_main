@@ -105,6 +105,8 @@ try:
 except Exception:
     exporter = None
 
+# Middleware
+from tricrawl.middlewares import SupersetDashboardMiddleware
 
 def format_duration(seconds):
     """초 단위를 사람이 읽기 쉬운 mm:ss 또는 hh:mm:ss로 변환."""
@@ -600,6 +602,9 @@ def print_menu():
         table.add_row("1", "🐳 Start Docker", "4", "📄 View Logs")
         table.add_row("2", "🛑 Stop Docker", "5", f"🔔 Toggle Discord ({'ON' if DISCORD_ENABLED else 'OFF'})")
         table.add_row("3", "🌑 Start Crawl", "6", "💾 Export DB to JSONL")
+
+        mode = os.getenv("TRICRAWL_SUPERSET_MODE", "cloud").lower()
+        table.add_row("", "", "7", f"🔬 Open Dashboard ({mode.upper()})")
         table.add_row("", "", "q", "👋 Quit")
 
         console.print(table)
@@ -609,6 +614,7 @@ def print_menu():
         print("│ 1  │ 🐳 Start Docker                │ 4  │ 📄 View Logs                   │")
         print("│ 2  │ 🛑 Stop Docker                 │ 5  │ 🔔 Toggle Discord              │")
         print("│ 3  │ 🌑 Start Crawl                 │ 6  │ 💾 Export DB to JSONL          │")
+        print("│    │                                │ 7  │ 🔬 Open Dashboard              │")
         print("│                                     │ q  │ 👋 Quit                        │")
         print("╰────┴────────────────────────────────┴────┴────────────────────────────────╯")
 
@@ -755,6 +761,20 @@ def interactive_mode():
                     exporter.convert_to_csv(jsonl_path)
             
             input("\n  [Enter] Continue...")
+
+
+        elif cmd == '7':
+            client = SupersetDashboardMiddleware()
+            url = client.get_url()
+            print(f"\n🔬 Superset Dashboard: {url}")
+            try:
+                ok = client.open_dashboard()
+                if not ok:
+                    print("❌ 자동으로 브라우저를 열지 못했습니다. 위 URL을 직접 여세요.")
+            except ValueError as e:
+                print(f"❌ {e}")
+            input("\n  [Enter] Continue...")
+
 
         else:
             pass 
