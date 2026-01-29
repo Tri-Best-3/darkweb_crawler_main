@@ -15,6 +15,17 @@ targets:
   - korean company
   - south korea
   - gov.kr
+
+  # 국가/도시
+  - usa
+  - us
+  - canada
+  - india
+  - russia
+  - indonesia
+  - spain
+  - new york
+  - california
   
   # 섹터
   - bank
@@ -41,6 +52,13 @@ targets:
   - kakao
   - naver
   - coupang
+
+  # 외국 기업명
+  - instagram
+  - youtube
+  - google
+  - paypal
+  - amazon
 
 # 알림 우선순위 설정
 # - 아래 키워드 매칭 시 'Critical' 등급으로 알림이 갑니다.
@@ -69,6 +87,10 @@ patterns:
     - fullz
     - personal info
     - kyc data
+    - passwords
+    - address
+    - phone
+    - creadit card
     # credentials
     - credential stuffing
     - access for sale
@@ -119,3 +141,13 @@ patterns:
     tox:
       - "([A-F0-9]{76})"
       - "TOX[:\\s]+([A-F0-9]{76})"
+    phone_kr:
+      # 1) 010-1234-5678
+      - "\\b01[016789]-\\d{3,4}-\\d{4}\\b"
+
+      # 2) +82 포함 (하이픈/공백 선택, 0 생략 케이스 포함)
+      #    예: +82 10-1234-5678 / +82-10-1234-5678 / +821012345678
+      - "\\+82[-\\s]?(?:0)?1[016789][ -]?\\d{3,4}[ -]?\\d{4}\\b"
+
+      # 3) 하이픈/공백 없이 숫자만
+      - "\\b01[016789]\\d{7,8}\\b"
