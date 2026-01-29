@@ -102,6 +102,18 @@ class BestCardingWorldSpider(scrapy.Spider):
         
         logger.info(f"Loaded Config - Global Days: {self.days_limit}, URLs: {len(self.start_urls)}")
 
+    def start_requests(self):
+        base = (self.target_url or "").rstrip("/")
+        for key, path in (self.endpoints or {}).items():
+            clean_path = str(path).lstrip("/")
+            full_url = f"{base}/{clean_path}"
+            yield scrapy.Request(
+                url=full_url,
+                callback=self.parse,
+                meta={"category": key, "board_key": key},
+                dont_filter=True,
+            )
+
 
     # def get_max_pages_for_url(self, url):
     #     """URL에 해당하는 게시판별 제한 확인 (config의 boards 기준)."""
@@ -171,7 +183,7 @@ class BestCardingWorldSpider(scrapy.Spider):
             # item["timestamp"] = datetime.now(timezone.utc).isoformat()  # 일단 수집 시각 
             item["timestamp"] = ts_iso
             item["content"] = ""
-            item["category"] = "data_breach"
+            item["category"] = response.meta.get("category") or "none"
             item["site_type"] = "Forum"
 
             # yield item
@@ -180,6 +192,7 @@ class BestCardingWorldSpider(scrapy.Spider):
                 url=url,
                 callback=self.parse_topic,
                 cb_kwargs={"item": item},
+                meta=response.meta, 
                 dont_filter=True,  # 같은 URL이더라도 항상 확인하고 싶으면 True
             )
         
