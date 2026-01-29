@@ -149,9 +149,9 @@ class PlayNewsSpider(scrapy.Spider):
                     pass
 
             # URL은 클릭 불가, 식별용으로 topic.php?id= 넣어둠
-            url = response.url
-            if topic_id:
-                url = response.urljoin(f"../topic.php?id={topic_id}")
+            # url = response.url
+            # if topic_id:
+            #     url = response.urljoin(f"../topic.php?id={topic_id}")
 
             item = LeakItem()
             item["source"] = "Play"
@@ -159,7 +159,8 @@ class PlayNewsSpider(scrapy.Spider):
             item["category"] = board_key
             item["author"] = "Play Admin"
             item["title"] = title
-            item["url"] = url
+            # item["url"] = url
+            item["url"] = response.url
             item["timestamp"] = ts_iso
 
             # content: 메타 + 카드 텍스트(국가/도메인 포함) 같이 저장
@@ -182,7 +183,19 @@ class PlayNewsSpider(scrapy.Spider):
             dedup_key = topic_id or f"{title}|{added or pub or ''}"
             item["dedup_id"] = hashlib.md5(dedup_key.encode("utf-8")).hexdigest()
 
-            yield item
+            if not topic_id:
+                continue
+
+            topic_url = response.urljoin(f"topic.php?id={topic_id}")
+
+            yield scrapy.Request(
+                url=topic_url,
+                callback=self.parse_topic,
+                meta={**response.meta, "item": item, "topic_id": topic_id},
+                dont_filter=True,
+            )
+
+            # yield item
             
         # 페이지네이션 (boards 제한까지만)
         if page < max_pages:
@@ -194,3 +207,10 @@ class PlayNewsSpider(scrapy.Spider):
                 meta={**response.meta, "page": next_page},
                 dont_filter=True,
             )
+
+    def parse_topic(self, response):
+        item = response.meta["item"]
+        # detail에서 본문/추가필드 추출해서 item 보강
+        detail_text = response.css(".News").xpath("string(.)").get() or ""
+        item["content"] = (item.get("content","") + " || " + " ".join(detail_text.split())).strip()
+        yield item

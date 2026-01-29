@@ -18,12 +18,14 @@ targets:
 
   # 국가/도시
   - usa
+  - united states
   - us
   - canada
   - india
   - russia
   - indonesia
   - spain
+  - germany
   - new york
   - california
   
@@ -91,6 +93,7 @@ patterns:
     - address
     - phone
     - creadit card
+    - ids
     # credentials
     - credential stuffing
     - access for sale

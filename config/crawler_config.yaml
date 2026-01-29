@@ -32,6 +32,15 @@ spiders:
   abyss:
     target_url: "http://3ev4metjirohtdpshsqlkrqcmxq6zu3d7obrdhglpy5jpbr7whmlfgqd.onion/"
 
+  play_news:
+    target_url: "http://k7kg3jqxang3wh7hnmaiokchk7qoebupfgoik6rha6mjpzwupwtj25yd.onion/"
+    endpoints:
+      news: "/index.php"
+
+    boards:
+      news: 3
+    default_max_pages: 5
+
   best_carding_world:
     target_url: "http://bestteermb42clir6ux7xm76d4jjodh3fpahjqgbddbmfrgp4skg2wqd.onion/"
     endpoints:
