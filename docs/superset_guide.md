@@ -63,4 +63,37 @@
 <img width="613" height="403" alt="image" src="https://github.com/user-attachments/assets/3812e5a0-ba10-419d-a311-80bffde6310d" />
 
 - `Chart name` : 차트 이름 확인
-- `Add to dashboard` : 내가 업로드할 대시보드 확인 
+- `Add to dashboard` : 내가 업로드할 대시보드 확인
+---
+
+## 4. Datasets
+커스텀으로 사용하고 싶은 값
+
+- `darkweb_leaks` 기준! 으로 진행
+
+<br></br>
+
+<img width="411" height="132" alt="image" src="https://github.com/user-attachments/assets/6f3f0e8d-f0b4-44ef-a59a-454d9661a3a8" />
+
+- `Edit Dataset` 선택
+
+<br></br>
+
+<img width="854" height="181" alt="image" src="https://github.com/user-attachments/assets/6df9a358-4b63-469f-abbc-4fb8881a0fa3" />
+
+- `Calculated columns` 탭에서 `+ Add item`
+
+<br></br>
+
+<img width="848" height="310" alt="image" src="https://github.com/user-attachments/assets/b8a6d9e1-f027-449c-a44d-3740460eb2c8" />
+
+- (ex) `hack`, `leak`, `acc`, `combo` 단어가 들어갈 경우 `hacked` 라는 값으로 통합
+- `X-axis` 값 등에서 사용 가능
+---
+
+## 5. SQL Lab
+SQL 구문을 사용해서 데이터 정제한 내용을 알아서 차트화 해줌 
+
+<img width="1661" height="764" alt="image" src="https://github.com/user-attachments/assets/5b37bf57-8763-4d3e-829b-5965c0d9318b" /> 
+
+ - 결과물을 `Save as dataset` 해서 가상 테이블 생성 후 차트화 
