@@ -487,10 +487,8 @@ def run_crawler(spider="test", limit=None):
     else:
         print("??  Config file not found. Using defaults.")
 
-    print()
-    print(f"실행: {display_name.get(spider, spider)}")
-    print(f"크롤 범위: {days_limit}일")
-    print(f"로그 파일: {log_file}")
+    # 시작 정보는 Rich Progress Panel에서 출력함 (중복 제거)
+    print()  # 빈 줄
 
     if shutil.which("scrapy") is None:
         print("scrapy 명령을 찾을 수 없습니다. venv를 활성화하세요.")
@@ -514,18 +512,17 @@ def run_crawler(spider="test", limit=None):
             spider,
             "-a",
             f"days_limit={days_limit}",
-            "-s",
-            f"LOG_FILE={log_file}",
-            "-s",
-
-            "LOG_LEVEL=INFO",
         ]
+
+        # LOG_FILE 인자 제거 (settings.py에서 처리)
+        # cmd.extend(["-s", f"LOG_FILE={log_file}"])
 
         if not DISCORD_ENABLED:
             cmd.extend(["-s", "DISCORD_WEBHOOK_URL="])
 
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         env.setdefault("PYTHONUTF8", "1")
+        env["TRICRAWL_LOG_FILE"] = str(log_file) # settings.py로 전달
         pythonpath = str(PROJECT_ROOT)
         if env.get("PYTHONPATH"):
             pythonpath = f"{pythonpath}{os.pathsep}{env['PYTHONPATH']}"
@@ -563,9 +560,11 @@ def run_crawler(spider="test", limit=None):
         summary_lines.append(f"로그 파일: {log_file}")
         summary_lines.append("=" * 60)
 
-        for line in summary_lines:
-            print(line)
+        # 콘솔 출력 제거 - Rich Progress Panel이 담당
+        # for line in summary_lines:
+        #     print(line)
 
+        # 로그 파일에만 기록
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write("\n")

@@ -10,6 +10,16 @@ Scrapy 프레임워크를 기반으로 하며, Docker화된 Tor 프록시를 통
 - Abyss(랜섬웨어 그룹, 데이터 변동 적음) 크롤링
 - DarkNetArmy(포럼, 데이터 변동 많음) 크롤링
 
+### 2026-01-30
+[팀원 개발 스파이더] - 하나의 브랜치로 통합
+- `Pre-Request Dedup` 도입 통일, 이미 수집된 ID는 상세 페이지 요청 단계에서 즉시 스킵
+- 데이터 필드 표준화 및 조회수(`views`) 수집 추가
+- 하드코딩 제거 및 각종 오류 수정
+[CLI 및 로직]
+- `RichProgress` 추가, 실시간 크롤링 상태(수집/스킵/에러) 시각화 및 한글 에러 메시지 제공
+- 크롤링 데이터에서 Telegram, Email, Discord 등 자동 추출하여 DB(`author_contacts`)에 jsonb 형식 저장
+- 성능 개선
+
 ### 2026-01-27
 - PostgreSQL(Supabase)로 DB 구성, 로컬 파일 아카이빙을 제거하고 Supabase DB(`darkweb_leaks`)를 SSOT로 격상
 - 데이터베이스 작업 중 알림이 너무 많이 와서 켜기/끄기 추가함(.env에 저장됨)
@@ -17,8 +27,6 @@ Scrapy 프레임워크를 기반으로 하며, Docker화된 Tor 프록시를 통
 - 중복 로직 개선 : `DeduplicationPipeline`에서 로드한 중복 ID를 스파이더에게 주입하여, 불필요한 Tor 요청을 네트워크 단에서 사전 차단
 - 그밖에 DarkNetArmy 스파이더 버그 수정 및 ID 생성 로직 URL해시 기반으로 통일해서 중복 처리 빨라짐
 
-### 2026-01-23
-- 코드에 lineage 주석 및 온보딩용 상세 주석 추가
 
 ## 특징
 
@@ -27,6 +35,9 @@ Scrapy 프레임워크를 기반으로 하며, Docker화된 Tor 프록시를 통
 - **오탐지 최소화**: 타겟 키워드(국가/기업명)는 단독 매칭 시 CRITICAL로 분류되며, 조건부 키워드(leak 등의 포괄 의미 키워드)는 타겟과 함께 있을 때만 알림됩니다.
 - **데이터 보존**: 모든 수집 데이터는 Supabase를 통해 아카이빙되며, CLI를 통해 파일로 내보낼 수 있습니다.
 - **Discord 알림**: 위험도(Risk Level)에 따라 색상을 구분하여 즉각적인 알림을 보냅니다.
+- **속도 최적화 (New)**: Pre-Request Dedup 기술로 중복 데이터 발생 시 불필요한 상세 페이지 요청을 원천 차단합니다.
+- **위협 인텔리전스 (New)**: 게시글 본문에서 텔레그램, 이메일, 디스코드 등 연락처 정보를 자동 추출하여 저장합니다.
+- **실시간 모니터링 (New)**: CLI에서 Rich Progress Bar를 통해 수집/스킵 현황과 에러 상태를 직관적으로 확인할 수 있습니다.
 
 ## 아키텍처
 
@@ -48,8 +59,8 @@ flowchart TD
     subgraph Pipelines ["🔄 Pipeline Chain"]
         direction TB
         Dedup["1. Deduplication<br/>(Hash Check)"]
-        Supa["2. Supabase Save<br/>(SSOT)"]
-        Kwd["3. Keyword Filter<br/>(Risk Scoring)"]
+        Kwd["2. Keyword Filter<br/>(Risk Scoring)"]
+        Supa["3. Supabase Save<br/>(SSOT + Contacts)"]
         Noti["4. Discord Notify<br/>(Async Webhook)"]
     end
 
@@ -64,10 +75,10 @@ flowchart TD
     
     ReqMW --> |3. Processed Data| Dedup
     
-    Dedup --> |New Item| Supa
-    Supa --> |Saved| Kwd
-    Supa -.-> |"Persist"| Supabase
-    Kwd -- "Matched" --> Noti
+    Dedup --> |New Item| Kwd
+    Kwd --> |Filtered| Supa
+    Supa -.-> |"Persist & Extract"| Supabase
+    Supa --> |Saved| Noti
     
     Noti -- "Alert" --> Discord
 

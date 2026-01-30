@@ -64,12 +64,73 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 KEYWORDS_CONFIG = PROJECT_ROOT / "config" / "keywords.yaml"
 
 # 로깅
-LOG_LEVEL = "WARNING"  # INFO 로그 숨김(깔끔한 출력)
-# structlog는 INFO로 출력되도록 하려면 Scrapy Logger와 분리 필요하지만, 
-# 기본적으로 Scrapy는 root logger를 잡으므로 WARNING으로 높여서 잡음 제거.
-# 스파이더에서 print()나 logger.warning()을 사용하면 됨.
+LOG_LEVEL = "DEBUG"  # 파일에는 모든 로그(DEBUG) 기록
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 LOG_DATEFORMAT = "%H:%M:%S"
+
+# 커스텀 LogFormatter (DropItem 시 item 전체 출력 억제)
+LOG_FORMATTER = "tricrawl.log_formatter.QuietLogFormatter"
+
+# Structlog 설정 (Scrapy 로거와 연동)
+# Structlog 설정 (Scrapy 로거와 연동)
+import structlog
+import logging
+import sys
+
+# Scrapy의 기본 로깅 비활성화 (우리가 직접 핸들러 제어)
+# Scrapy의 기본 로깅 비활성화 (우리가 직접 핸들러 제어)
+LOG_ENABLED = True  # Scrapy가 로그를 생성하도록 함
+LOG_FILE = os.getenv("TRICRAWL_LOG_FILE")  # Scrapy가 이 파일에 DEBUG 로그를 쓰고, Console output은 중단함
+
+# 로깅 설정 초기화
+def setup_custom_logging():
+    # Scrapy가 LOG_FILE 설정을 보고 FileLogObserver를 이미 부착했으므로,
+    # 우리는 Console에 보여줄 "요약 정보(WARNING/INFO)"용 StreamHandler만 추가하면 됨.
+    
+    root_logger = logging.getLogger()
+    # Scrapy가 Root Logger Level을 LOG_LEVEL(DEBUG)로 설정함.
+    
+    # 1. Console Handler (WARNING - Progress Bar 보호)
+    has_stream = any(isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler) for h in root_logger.handlers)
+    
+    if not has_stream:
+        # 진행률 표시줄(Rich)은 stdout을 쓰므로, 여기서는 stderr나 stdout을 쓰되 
+        # ERROR 이상만 출력하여 진행률 표시줄을 망치지 않게 함.
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.ERROR)  # WARNING도 숨김
+        console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
+        root_logger.addHandler(console_handler)
+    else:
+        # 기존 핸들러가 있다면 레벨만 강제 조정
+        for h in root_logger.handlers:
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+                h.setLevel(logging.ERROR)  # WARNING도 숨김
+
+    # 2. File Handler -> Scrapy가 LOG_FILE 설정에 따라 자동으로 처리함 (DEBUG)
+    # 따라서 별도로 추가할 필요 없음 (중복 방지)
+
+setup_custom_logging()
+
+
+# 확장 기능 활성화
+EXTENSIONS = {
+    "tricrawl.rich_progress.RichProgress": 500,
+}
+
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        # Scrapy 호환성을 위해 stdlib logger로 전달
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
 
 # 재시도
 RETRY_ENABLED = True

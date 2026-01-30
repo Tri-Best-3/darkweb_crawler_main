@@ -185,8 +185,27 @@ class BestCardingWorldSpider(scrapy.Spider):
             item["content"] = ""
             item["category"] = response.meta.get("category") or "none"
             item["site_type"] = "Forum"
+            
+            # Views extraction (phpBB standard: dd.views)
+            try:
+                # 텍스트: "123 Views" 또는 숫자만
+                raw_views = row.css("dd.views::text").get()
+                if raw_views:
+                    m = re.search(r"(\d+)", raw_views)
+                    item["views"] = int(m.group(1)) if m else None
+                else:
+                    item["views"] = None
+            except Exception:
+                item["views"] = None
 
-            # yield item
+            # [Pre-Request Dedup] dedup_id 생성 및 중복 체크
+            import hashlib
+            dedup_key = f"{item['title']}|{item['author']}"
+            item["dedup_id"] = hashlib.md5(dedup_key.encode()).hexdigest()
+            
+            if hasattr(self, 'seen_ids') and item["dedup_id"] in self.seen_ids:
+                logger.debug(f"Pre-skip: {title[:30]} (already in DB)")
+                continue
 
             yield scrapy.Request(
                 url=url,

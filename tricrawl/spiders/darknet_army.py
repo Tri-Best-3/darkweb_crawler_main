@@ -236,7 +236,8 @@ class DarkNetArmySpider(scrapy.Spider):
             meta_data = {
                 'title': title,
                 'author': author,
-                'timestamp': date_time
+                'timestamp': date_time,
+                'views': self.parse_views(thread.css(".structItem-cell--meta dl.structItem-minor dd::text").get())
             }
 
             if link and is_recent:
@@ -276,6 +277,20 @@ class DarkNetArmySpider(scrapy.Spider):
             logger.info(f"다음 페이지로 이동 (Next Page: {page_count + 1})")
             yield response.follow(next_page, callback=self.parse, meta={'page_count': page_count + 1})
 
+    def parse_views(self, views_str):
+        if not views_str:
+            return None
+        try:
+            s = views_str.lower().strip()
+            if 'k' in s:
+                return int(float(s.replace('k', '')) * 1000)
+            elif 'm' in s:
+                return int(float(s.replace('m', '')) * 1000000)
+            else:
+                return int(s.replace(',', ''))
+        except:
+            return None
+
     def parse_post(self, response):
         """
         게시물 상세 내용 파싱 - XenForo Thread View.
@@ -301,6 +316,7 @@ class DarkNetArmySpider(scrapy.Spider):
         meta_title = response.meta.get('title')
         meta_author = response.meta.get('author')
         meta_time = response.meta.get('timestamp')
+        meta_views = response.meta.get('views')
         
         # 상세 페이지에서 제목 재확인 (더 정확할 수 있음)
         item["title"] = (
@@ -334,7 +350,7 @@ class DarkNetArmySpider(scrapy.Spider):
                 if text:
                     content_parts.append(text)
             
-            dirty_content = "\\n".join(content_parts)
+            dirty_content = "\n".join(content_parts)
             
             # Telegram/Contact 추출 (Hidden 밖의 정보가 중요)
             # a tag의 href나 텍스트에서 텔레그램 링크 찾기
@@ -346,9 +362,9 @@ class DarkNetArmySpider(scrapy.Spider):
             
             # Hidden일 경우 경고 문구 추가
             if is_hidden:
-                dirty_content = f"🔒 [Hidden Content] (Requires Reaction)\\n\\n" + dirty_content
+                dirty_content = f"🔒 [Hidden Content] (Requires Reaction)\n\n" + dirty_content
                 if contacts:
-                    dirty_content += f"\\n\\n📞 Found Contacts:\\n" + "\\n".join(contacts)
+                    dirty_content += f"\n\n📞 Found Contacts:\n" + "\n".join(contacts)
 
             item["content"] = dirty_content[:5000] # 길이 제한
             
@@ -374,6 +390,17 @@ class DarkNetArmySpider(scrapy.Spider):
                 item["category"] = breadcrumbs[-1].strip()
             else:
                  item["category"] = "General"
+            
+            # Views Extraction
+            if meta_views is not None:
+                item["views"] = meta_views
+            else:
+                try:
+                    # XenForo definition lists (dl.pairs)
+                    views_val = response.xpath("//dt[contains(translate(., 'VIEWS', 'views'), 'views')]/following-sibling::dd[1]/text()").get()
+                    item["views"] = self.parse_views(views_val) if views_val else None
+                except Exception:
+                    item["views"] = None
                 
         else:
             # 구조가 다를 경우 전체 텍스트 fallback
@@ -382,6 +409,7 @@ class DarkNetArmySpider(scrapy.Spider):
             item["timestamp"] = meta_time
             item["site_type"] = "Forum"
             item["category"] = "Unknown"
+            item["views"] = meta_views
         
         # 데이터 클리닝
         if item["author"]:

@@ -180,7 +180,8 @@ class AbyssSpider(scrapy.Spider):
                     item["author"] = "Abyss"
                     item["timestamp"] = current_time
                     item["site_type"] = "Ransomware"
-                    item["category"] = "General" # 랜섬웨어는 보통 단일 페이지라 General로 통일
+                    item["category"] = "Ransomware" # 랜섬웨어는 보통 단일 페이지라 General로 통일
+                    item["views"] = None
 
                     # 내용 기반 ID로 업데이트 감지
                     # Title + Description Hash

@@ -99,8 +99,14 @@ class DeduplicationPipeline:
                         self.seen_hashes.add(did)
                         count += 1
                 
+                # Stats에 저장 (RichProgress에서 읽을 수 있도록)
+                if self._crawler:
+                    self._crawler.stats.set_value("dedup/loaded_ids", count)
+                
                 logger.info(f"[{spider_name}] ✅ Supabase에서 {count}개의 중복 ID 로드 완료.")
             else:
+                if self._crawler:
+                    self._crawler.stats.set_value("dedup/loaded_ids", 0)
                 logger.info(f"[{spider_name}] DB가 비어있거나 초기 상태입니다.")
 
         except Exception as e:
