@@ -43,7 +43,6 @@ class LeakItem(scrapy.Item):
 
     # 권장 필드(없으면 빈 값으로 보정 권장)
     content = scrapy.Field()   # 본문(요약 가능)
-    content = scrapy.Field()   # 본문(요약 가능)
     category = scrapy.Field()  # 게시판/분류명 (예: "Leaked Databases")
     site_type = scrapy.Field() # 사이트 유형 (예: "Ransomware", "Forum")
 
