@@ -40,6 +40,7 @@ class LeakItem(scrapy.Item):
     title = scrapy.Field()   # 게시글/유출 제목
     author = scrapy.Field()  # 작성자/작성 그룹 (dedup에 사용)
     timestamp = scrapy.Field()  # ISO-8601 문자열 권장(UTC)
+    views = scrapy.Field()      # 조회수 (정수 또는 문자열)
 
     # 권장 필드(없으면 빈 값으로 보정 권장)
     content = scrapy.Field()   # 본문(요약 가능)

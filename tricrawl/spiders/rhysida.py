@@ -1,6 +1,11 @@
 import scrapy
 from datetime import datetime, timezone
 from tricrawl.items import LeakItem
+import yaml
+from pathlib import Path
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 class RhysidaSpider(scrapy.Spider):
     """
@@ -14,10 +19,7 @@ class RhysidaSpider(scrapy.Spider):
     """
     
     name = "rhysida"
-    allowed_domains = ["rhysidafohrhyy2aszi7bm32tnjat5xri65fopcxkdfxhi4tidsg7cad.onion"]
-    start_urls = [
-        "http://rhysidafohrhyy2aszi7bm32tnjat5xri65fopcxkdfxhi4tidsg7cad.onion/archive.php"
-    ]
+    # allowed_domains, start_urls -> Config 로드 후 설정
     
     # Tor 미들웨어 필수 설정
     custom_settings = {
@@ -26,8 +28,39 @@ class RhysidaSpider(scrapy.Spider):
             "tricrawl.middlewares.TorProxyMiddleware": None,
             "scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware": None,
         },
-        "CLOSESPIDER_PAGECOUNT": 3,  # 테스트용 제한
     }
+
+    def __init__(self, *args, **kwargs):
+        """YAML 설정을 로드하고 start_urls를 구성한다."""
+        super().__init__(*args, **kwargs)
+
+        # 설정 파일 로드
+        self.config = {}
+        try:
+            # 프로젝트 루트 (tricrawl/spiders -> ../../)
+            project_root = Path(__file__).resolve().parents[2]
+            config_path = project_root / "config" / "crawler_config.yaml"
+            
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    full_conf = yaml.safe_load(f) or {}
+                    self.config = full_conf.get('spiders', {}).get('rhysida', {})
+                logger.info(f"Config loaded from {config_path}")
+            else:
+                logger.warning("Config file not found, using defaults")
+                
+        except Exception as e:
+            logger.error(f"Config load failed: {e}")
+
+        self.target_url = self.config.get('target_url')
+        if self.target_url:
+            self.start_urls = [self.target_url]
+        else:
+            logger.error("Target URL NOT found in config for rhysida.")
+            self.start_urls = []
+    
+    # Tor 미들웨어 필수 설정
+
 
     def parse(self, response):
         """
@@ -70,5 +103,6 @@ class RhysidaSpider(scrapy.Spider):
                 content=full_content,
                 category="Ransomware",
                 site_type="Ransomware",  # ⭐ 필수
-                dedup_id=None
+                dedup_id=None,
+                views=None
             )

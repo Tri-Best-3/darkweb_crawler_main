@@ -3,7 +3,7 @@
 # - 기본 정책: 타겟 매칭 시 알림, 조건부 키워드는 타겟과 함께 있을 때만 알림 전송
 
 rules:
-  require_target: true # True면 타겟 키워드(기업명) 없으면 무조건 드롭됨. False면 조건부 키워드만 있어도 수집.
+  require_target: false # True면 타겟 키워드(기업명) 없으면 무조건 드롭됨. False면 조건부 키워드만 있어도 수집.
 
 targets:
 # 기업, 국가 등 타깃 키워드 설정

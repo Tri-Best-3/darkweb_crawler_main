@@ -22,7 +22,8 @@
 │   ├── pipelines/          # 파이프라인
 │   ├── middlewares/        # Tor/Requests 미들웨어
 │   ├── items.py            # 아이템 스키마
-│   └── settings.py         # Scrapy 설정
+│   ├── settings.py         # Scrapy 설정
+│   └── rich_progress.py    # UI/UX 확장 (신규)
 ├── config/
 │   ├── crawler_config.yaml # 스파이더별 설정
 │   └── keywords.yaml       # 키워드 정책
@@ -35,12 +36,13 @@
 ## 2. 데이터 흐름 이해
 
 ```
-Spider → ArchivePipeline → DeduplicationPipeline → KeywordFilterPipeline → DiscordNotifyPipeline
+Spider (Pre-Dedup) → ArchivePipeline(Legacy) → DeduplicationPipeline → KeywordFilterPipeline → SupabasePipeline(+Contacts) → DiscordNotifyPipeline
 ```
 
-- Archive: Supabase (`darkweb_leaks` Table)에 저장 (ArchivePipeline은 비활성)
-- Dedup: Supabase DB의 `dedup_id`를 기준 (Spider 주입 최적화 적용)
-- Filter: 타겟 매칭 시 CRITICAL, 조건부 키워드는 단독 매칭도 허용 (설정 의존)
+- Pre-Dedup: 스파이더 레벨에서 중복 ID 사전 체크 (요청 스킵)
+- Dedup: 파이프라인 레벨 중복 체크
+- Filter: 타겟 매칭 시 CRITICAL
+- Supabase: DB 저장 및 **연락처 자동 추출** (`author_contacts`)
 - Notify: Discord Embed 전송
 
 ---
@@ -63,16 +65,14 @@ class NewSiteSpider(scrapy.Spider):
     start_urls = ["http://example.onion/"]
 
     def parse(self, response):
-        for post in response.css("div.post"):
             item = LeakItem()
             item["source"] = "NewSite"
-            item["title"] = post.css("h2::text").get() or ""
-            item["url"] = response.urljoin(post.css("a::attr(href)").get())
-            item["author"] = post.css(".author::text").get() or "Unknown"
-            item["timestamp"] = datetime.now(timezone.utc).isoformat()
-            item["site_type"] = "Forum" # or "Ransomware"
-            item["category"] = "General"
-            item["content"] = ""
+            # ... 필드 설정 ...
+            
+            # [Pre-Request Dedup] 상세 요청 전 중복 체크
+            if hasattr(self, 'seen_ids') and dedup_id in self.seen_ids:
+                continue
+
             yield item
 ```
 
