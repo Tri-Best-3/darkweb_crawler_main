@@ -40,16 +40,17 @@ TOR_PROXY = f"{TOR_PROXY_SCHEME}://{TOR_PROXY_HOST}:{TOR_PROXY_PORT}"
 # - TorProxyMiddleware는 .onion에 프록시 적용
 DOWNLOADER_MIDDLEWARES = {
     # .onion 요청은 requests 기반 다운로드로 처리
-    "tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware": 543,
+    "tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware": 900,
     "tricrawl.middlewares.TorProxyMiddleware": 740, 
     "scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware": 750, 
 }
 
 # 파이프라인 (숫자가 낮을수록 먼저 실행)
 ITEM_PIPELINES = {
-    "tricrawl.pipelines.ArchivePipeline": 10,            # 전체 데이터 아카이브
+    # "tricrawl.pipelines.ArchivePipeline": 10,            # 전체 데이터 아카이브(로컬 파일 생성 X, supabase에 백업됨 필요 시 주석 해제)
     "tricrawl.pipelines.DeduplicationPipeline": 50,      # 중복 필터링
     "tricrawl.pipelines.KeywordFilterPipeline": 100,     # 키워드 필터링
+    "tricrawl.pipelines.supabase.SupabasePipeline": 200, # Supabase 저장
     "tricrawl.pipelines.DiscordNotifyPipeline": 300,     # 디스코드 알림
 }
 

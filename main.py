@@ -13,6 +13,10 @@ import re
 import shutil
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+
+# .env 파일 로드 (환경변수 설정)
+load_dotenv()
 
 def _configure_utf8_output():
     """콘솔 출력 인코딩을 UTF-8로 고정해 한글 출력 깨짐을 방지."""
@@ -78,6 +82,9 @@ else:
     HAS_RICH = False
     console = None
 
+# Global State
+DISCORD_ENABLED = os.getenv("DISCORD_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # 프로젝트 경로
 PROJECT_ROOT = Path(__file__).parent
 TRICRAWL_DIR = PROJECT_ROOT / "tricrawl"
@@ -90,6 +97,13 @@ try:
     HAS_SCRAPY = True
 except Exception:
     HAS_SCRAPY = False
+
+# Exporter Import
+try:
+    from tricrawl.exporter import DataExporter
+    exporter = DataExporter()
+except Exception:
+    exporter = None
 
 
 def format_duration(seconds):
@@ -453,7 +467,6 @@ def run_crawler(spider="test", limit=None):
         "test": "Test Integration (Mockup Crawl + Webhook)",
         "darknet_army": "DarkNetArmy (Dark Web Forum)",
         "abyss": "Abyss (Ransomware Site)",
-        "darkweb_news": "Dark Web Crawl (Real Mode)",
     }
 
     # 설정 파일 로드
@@ -502,8 +515,13 @@ def run_crawler(spider="test", limit=None):
             "-s",
             f"LOG_FILE={log_file}",
             "-s",
+
             "LOG_LEVEL=INFO",
         ]
+
+        if not DISCORD_ENABLED:
+            cmd.extend(["-s", "DISCORD_WEBHOOK_URL="])
+
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         env.setdefault("PYTHONUTF8", "1")
         pythonpath = str(PROJECT_ROOT)
@@ -580,21 +598,24 @@ def print_menu():
         table.add_column("Description")
 
         table.add_row("1", "🐳 Start Docker", "4", "📄 View Logs")
-        table.add_row("2", "🛑 Stop Docker", "q", "👋 Quit")
-        table.add_row("3", "🌑 Start Crawl", "", "")
+        table.add_row("2", "🛑 Stop Docker", "5", f"🔔 Toggle Discord ({'ON' if DISCORD_ENABLED else 'OFF'})")
+        table.add_row("3", "🌑 Start Crawl", "6", "💾 Export DB to JSONL")
+        table.add_row("", "", "q", "👋 Quit")
 
         console.print(table)
         console.print()
     else:
         print("╭────┬────────────────────────────────┬────┬────────────────────────────────╮")
         print("│ 1  │ 🐳 Start Docker                │ 4  │ 📄 View Logs                   │")
-        print("│ 2  │ 🛑 Stop Docker                 │ q  │ 👋 Quit                        │")
-        print("│ 3  │ 🌑 Start Crawl                 │    │                                │")
+        print("│ 2  │ 🛑 Stop Docker                 │ 5  │ 🔔 Toggle Discord              │")
+        print("│ 3  │ 🌑 Start Crawl                 │ 6  │ 💾 Export DB to JSONL          │")
+        print("│                                     │ q  │ 👋 Quit                        │")
         print("╰────┴────────────────────────────────┴────┴────────────────────────────────╯")
 
 
 def interactive_mode():
     """메뉴 기반 인터랙티브 모드."""
+    global DISCORD_ENABLED
     # 인터랙티브 모드 실행
     while True:
         status()
@@ -691,7 +712,50 @@ def interactive_mode():
             view_logs(50)
             input("\n  [Enter] Continue...")
 
+        elif cmd == '5':
+            DISCORD_ENABLED = not DISCORD_ENABLED
             
+            # .env 파일 업데이트 (상태 저장)
+            try:
+                env_path = PROJECT_ROOT / ".env"
+                if env_path.exists():
+                    lines = env_path.read_text(encoding="utf-8").splitlines()
+                    new_lines = []
+                    found = False
+                    for line in lines:
+                        if line.startswith("DISCORD_ENABLED="):
+                            new_lines.append(f"DISCORD_ENABLED={str(DISCORD_ENABLED).lower()}")
+                            found = True
+                        else:
+                            new_lines.append(line)
+                    
+                    if not found:
+                        new_lines.append(f"DISCORD_ENABLED={str(DISCORD_ENABLED).lower()}")
+                        
+                    env_path.write_text("\n".join(new_lines), encoding="utf-8")
+            except Exception as e:
+                print(f"⚠️ Failed to save setting to .env: {e}")
+
+
+
+            print(f"\n🔔 Discord Notification: {status_text} (Saved)")
+            time.sleep(1)
+
+        elif cmd == '6':
+            if not exporter:
+                print("⚠️  Exporter module not loaded. Check dependencies.")
+                continue
+            
+            jsonl_path = exporter.export_to_jsonl()
+            
+            if jsonl_path:
+                print("\n엑셀(CSV)로도 변환하시겠습니까?")
+                convert = input("  Convert to CSV? (Y/n): ").strip().lower()
+                if convert in ('', 'y', 'yes'):
+                    exporter.convert_to_csv(jsonl_path)
+            
+            input("\n  [Enter] Continue...")
+
         else:
             pass 
 

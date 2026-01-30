@@ -64,7 +64,11 @@ class DiscordNotifyPipeline:
             self._stats.set_value("discord_notify/sent", 0)
     
     def process_item(self, item, spider=None):
-        """아이템을 큐에 넣고 즉시 반환 (크롤링 속도 저하 방지)."""
+        """아이템을 큐에 넣고 즉시 반환."""
+        # NONE 등급은 알림 발송 제외 (Archive Only)
+        if item.get("risk_level") == "NONE":
+            return item
+            
         if self.webhook_url:
             self.queue.put(item)
         return item
@@ -201,7 +205,7 @@ class DiscordNotifyPipeline:
         description = (
             f"🎯 **Target**: {item.get('source', 'Unknown')}\n"
             f"📅 **Date**: {self._convert_to_kst(item.get('timestamp'))}\n"
-            f"📂 **Category**: {item.get('category', 'Generic')}\n\n"
+            f"🏷️ **Type**: {item.get('site_type', 'Unknown')} / {item.get('category', 'Generic')}\n\n"
             f"```{clean_content}```"
         )
 

@@ -11,9 +11,10 @@
 ```python
 # tricrawl/settings.py
 ITEM_PIPELINES = {
-    "tricrawl.pipelines.ArchivePipeline": 10,
+    # "tricrawl.pipelines.ArchivePipeline": 10,  # 로컬 아카이빙 (현재 비활성)
     "tricrawl.pipelines.DeduplicationPipeline": 50,
     "tricrawl.pipelines.KeywordFilterPipeline": 100,
+    "tricrawl.pipelines.supabase.SupabasePipeline": 200, # Supabase 저장
     "tricrawl.pipelines.DiscordNotifyPipeline": 300,
 }
 ```
@@ -61,14 +62,14 @@ CONTACT_PATTERNS = {
 
 **역할**: 이미 알림 보낸 게시물 중복 방지
 
-**저장 위치**: `data/dedup_{spider_name}.json` (스파이더별 자동 격리)
+**저장 위치**: `Supabase DB` (darkweb_leaks 테이블) / `메모리`(Pre-filtering)
 
 **동작**:
-1. `dedup_id` 확인 (없으면 `제목 + 작성자` 해시 생성 후 `item['dedup_id']`에 저장)
-2. 캐시에 있으면 → `DropItem` (알림 안 감)
-3. 캐시에 없으면 → 캐시에 추가 후 다음 파이프라인으로
+1. **Initial Load**: 스파이더 시작 시 DB에서 최근 `dedup_id`를 가져와 스파이더에게 주입 (`spider.seen_ids`).
+2. **Pre-filtering**: 스파이더는 URL 해시를 `seen_ids`와 비교하여, 중복이면 **크롤링 요청 자체를 스킵** (Tor 대역폭 절약).
+3. **Pipeline Check**: 혹시 뚫고 들어온 아이템은 파이프라인 단계에서 다시 `seen_hashes`와 비교하여 `DropItem`.
 
-**캐시 초기화**: `data/dedup_{spider_name}.json` 삭제
+**캐시**: 메모리에 유지하며, DB는 동기화 용도.
 
 ---
 
@@ -118,7 +119,20 @@ samsung leak      → ✅ 알림 (CRITICAL, matched_keywords: leak / matched_tar
 
 ---
 
-## 4. DiscordNotifyPipeline (Priority: 300)
+## 4. SupabasePipeline (Priority: 200)
+
+**파일**: `tricrawl/pipelines/supabase.py`
+
+**역할**: 최종 데이터를 Supabase 데이터베이스에 영구 저장 (SSOT)
+
+**동작**:
+- `KeywordFilterPipeline`을 통과한 모든 아이템(Risk 'NONE' 포함)을 저장합니다.
+- `dedup_id`를 PK로 사용하여 **UPSERT** (On Conflict Do Update/Nothing) 처리합니다.
+- 필드 매핑: `site_type`, `category` 등 메타데이터 포함.
+
+---
+
+## 5. DiscordNotifyPipeline (Priority: 300)
 
 **파일**: `tricrawl/pipelines/discord_notify.py`
 
