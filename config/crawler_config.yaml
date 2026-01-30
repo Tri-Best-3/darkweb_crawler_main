@@ -1,7 +1,7 @@
 # 크롤러 설정
 # 전역 설정
 global:
-  days_to_crawl: 1        # 최근 3일 데이터 수집
+  days_to_crawl: 14        # 최근 14일 데이터 수집, 첫 빌딩 시 권장. 이후 1일~2일 단위로 수정 후 스케쥴링 권장
 
 # 스파이더별 설정
 spiders:
@@ -23,10 +23,10 @@ spiders:
     # 게시판별 수집 페이지 수 제한 (Endpoint Key 기준)
     boards:
       whats_new: 2
-      hacked_db: 1
-      info_stealers: 1
-      paid_accounts: 1
-      combolists: 1
+      hacked_db: 3
+      info_stealers: 3
+      paid_accounts: 3
+      combolists: 3
 
   # Abyss
   abyss:
@@ -36,7 +36,6 @@ spiders:
     target_url: "http://k7kg3jqxang3wh7hnmaiokchk7qoebupfgoik6rha6mjpzwupwtj25yd.onion/"
     endpoints:
       news: "/index.php"
-
     boards:
       news: 3
     default_max_pages: 5
@@ -46,8 +45,23 @@ spiders:
     endpoints:
       hacked_db: "/viewforum.php?f=30"
       malware: "/viewforum.php?f=47"
-    
     # 게시판별 수집 페이지 수 제한 (Endpoint Key 기준)
     boards:
       hacked_db: 3
       malware: 3
+  
+  bfdx:
+    target_url: "http://bfdxjkv5e2z3ilrifzbnvxxvhbzsj67akjpj3zc6smzr4vv6oz565gyd.onion/"
+    endpoints:
+      buy_sell: "/forums/buy-sell.70/"
+      worldwide_news: "/forums/worldwide-news.66/"
+    
+    boards:
+      buy_sell: 1
+      worldwide_news: 1
+
+  rhysida:
+    target_url: "http://rhysidafohrhyy2aszi7bm32tnjat5xri65fopcxkdfxhi4tidsg7cad.onion/archive.php"
+  
+  lockbit:
+    target_url: "http://lockbit3olp7oetlc4tl5zydnoluphh7fvdt5oa6arcp2757r7xkutid.onion/"

@@ -97,7 +97,20 @@ class RequestsDownloaderMiddleware:
             )
 
         except Exception as e:
-            logger.error("다운로드 실패", url=request.url, error=str(e))
+            # 에러 메시지를 사람이 읽기 쉽게 변환
+            error_str = str(e)
+            if "RemoteDisconnected" in error_str or "closed connection" in error_str:
+                friendly_msg = "🔄 Tor 연결 끊김 (재시도 예정)"
+            elif "timed out" in error_str.lower() or "timeout" in error_str.lower():
+                friendly_msg = "⏱️ 연결 시간 초과 (재시도 예정)"
+            elif "refused" in error_str.lower():
+                friendly_msg = "🚫 연결 거부됨"
+            elif "reset" in error_str.lower():
+                friendly_msg = "🔄 연결 리셋됨 (재시도 예정)"
+            else:
+                friendly_msg = f"❌ 연결 실패: {error_str[:50]}"
+            
+            logger.error(friendly_msg, url=request.url[:60])
             """
             에러 발생 시 여기서 None을 리턴하면 안 되고(Thread 안이므로),
             예외를 발생시키거나 Scrapy Response 객체를 만들어야 하는데,

@@ -27,6 +27,8 @@ ITEM_PIPELINES = {
 
 **파일**: `tricrawl/pipelines/archive.py`
 
+**상태**: **비활성화 (Legacy)** -> `SupabasePipeline`으로 기능 통합됨
+
 **역할**: 모든 크롤링 데이터를 JSON으로 저장 (필터링 여부 무관)
 
 **저장 위치**: `data/archive_{spider_name}.jsonl` (스파이더별 자동 격리)
@@ -125,10 +127,19 @@ samsung leak      → ✅ 알림 (CRITICAL, matched_keywords: leak / matched_tar
 
 **역할**: 최종 데이터를 Supabase 데이터베이스에 영구 저장 (SSOT)
 
+**주요 기능**:
+1. **DB 저장**: `KeywordFilterPipeline`을 통과한 아이템 저장 (UPSERT)
+2. **연락처 자동 추출**: 본문(`content`)에서 텔레그램, 이메일, 디스코드 등을 정규식으로 추출하여 `author_contacts` 컬럼(JSONB)에 저장
+   - 패턴 출처: `config/keywords.yaml`
+
+**스키마 매핑**:
+- `author_contacts`: `metrics` (JSONB) - 예: `{"telegram": ["@admin"], "email": ["..."]}`
+- `views`: `views` (Int)
+- `dedup_id`: PK (String)
+
 **동작**:
-- `KeywordFilterPipeline`을 통과한 모든 아이템(Risk 'NONE' 포함)을 저장합니다.
 - `dedup_id`를 PK로 사용하여 **UPSERT** (On Conflict Do Update/Nothing) 처리합니다.
-- 필드 매핑: `site_type`, `category` 등 메타데이터 포함.
+- 필드 매핑: `site_type`, `category`, `views`, `author_contacts` 등 메타데이터 포함.
 
 ---
 

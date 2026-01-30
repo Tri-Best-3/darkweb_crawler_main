@@ -28,6 +28,7 @@ class PlayNewsSpider(scrapy.Spider):
     custom_settings = {
         "ROBOTSTXT_OBEY": False,
         "DOWNLOAD_TIMEOUT": 120,
+        "DOWNLOAD_DELAY": 3,  # 5초 → 3초로 단축
         # 사이트 부하 및 토르 노드 안정성을 위해 동시성 제한
         "CONCURRENT_REQUESTS": 1,
         # 전체 목록 기반 업데이트 감지를 위해 사용
@@ -133,7 +134,8 @@ class PlayNewsSpider(scrapy.Spider):
             topic_id = m.group(1) if m else ""
 
             # 메타 추출
-            views = RX_VIEWS.search(all_text).group(1) if RX_VIEWS.search(all_text) else None
+            views_match = RX_VIEWS.search(all_text)
+            views = int(views_match.group(1)) if views_match else None
             added = RX_ADDED.search(all_text).group(1) if RX_ADDED.search(all_text) else None
             pub = RX_PUB.search(all_text).group(1) if RX_PUB.search(all_text) else None
 
@@ -154,34 +156,36 @@ class PlayNewsSpider(scrapy.Spider):
             #     url = response.urljoin(f"../topic.php?id={topic_id}")
 
             item = LeakItem()
-            item["source"] = "Play"
+            item["source"] = "PLAY"
             item["site_type"] = "Ransomware"
-            item["category"] = board_key
-            item["author"] = "Play Admin"
+            item["category"] = "Ransomware"  # 랜섬웨어 그룹 통일
+            item["author"] = "Play News"
             item["title"] = title
             # item["url"] = url
             item["url"] = response.url
+            item["url"] = response.url
             item["timestamp"] = ts_iso
+            item["views"] = views
 
-            # content: 메타 + 카드 텍스트(국가/도메인 포함) 같이 저장
-            meta_bits = []
-            if topic_id:
-                meta_bits.append(f"id:{topic_id}")
-            if views:
-                meta_bits.append(f"views:{views}")
-            if added:
-                meta_bits.append(f"added:{added}")
-            if pub:
-                meta_bits.append(f"publication_date:{pub}")
-
-            meta_line = " | ".join(meta_bits)
-            blob = all_text
-            if len(blob) > 1200:
-                blob = blob[:1200] + "..."
-            item["content"] = (meta_line + " || " + blob).strip(" |")
+            # content: 본문만 저장 (메타데이터는 별도 필드에 이미 저장됨)
+            # all_text에서 메타 정보 제거
+            content_text = all_text
+            # id:xxx, views:xxx, added:xxx 등 메타 패턴 제거
+            for pattern in [RX_VIEWS, RX_ADDED, RX_PUB]:
+                content_text = pattern.sub("", content_text)
+            content_text = content_text.strip()
+            
+            if len(content_text) > 1200:
+                content_text = content_text[:1200] + "..."
+            item["content"] = content_text
 
             dedup_key = topic_id or f"{title}|{added or pub or ''}"
             item["dedup_id"] = hashlib.md5(dedup_key.encode("utf-8")).hexdigest()
+
+            # [Pre-Request Dedup] 이미 DB에 있으면 상세 페이지 요청 스킵
+            if hasattr(self, 'seen_ids') and item["dedup_id"] in self.seen_ids:
+                logger.debug(f"Pre-skip: {title[:30]} (already in DB)")
+                continue
 
             if not topic_id:
                 continue
@@ -210,7 +214,15 @@ class PlayNewsSpider(scrapy.Spider):
 
     def parse_topic(self, response):
         item = response.meta["item"]
-        # detail에서 본문/추가필드 추출해서 item 보강
+        # 상세 페이지에서 본문 추출 (리스트 페이지 content 대체)
         detail_text = response.css(".News").xpath("string(.)").get() or ""
-        item["content"] = (item.get("content","") + " || " + " ".join(detail_text.split())).strip()
+        # 공백 정리
+        detail_text = " ".join(detail_text.split()).strip()
+        
+        if len(detail_text) > 2000:
+            detail_text = detail_text[:2000] + "..."
+        
+        # 상세 본문이 있으면 교체, 없으면 기존 유지
+        if detail_text:
+            item["content"] = detail_text
         yield item

@@ -11,7 +11,8 @@ TriCrawl의 코어 로직을 훼손하지 않고 새로운 기능을 안전하�
 TriCrawl은 Scrapy의 **파이프라인 패턴**을 따릅니다. 데이터는 물 흐르듯 다음 단계로 전달되며, 각 단계는 독립적이어야 합니다.
 
 **[데이터 흐름]**
-`Spider` (수집) → `Archive` (백업) → `Dedup` (중복제거) → `Filter` (데이터 가공) → `Notify` (외부 전송)
+**[데이터 흐름]**
+`Spider (Pre-Dedup)` → `Filter` → `Supabase` (저장/연락처추출) → `Notify` (외부 전송)
 
 ---
 
@@ -30,6 +31,7 @@ TriCrawl은 Scrapy의 **파이프라인 패턴**을 따릅니다. 데이터는 �
 | `author` | `str` | ✅ | 작성자 (중복 제거 키로 사용됨) |
 | `timestamp` | `str` | ✅ | 작성 시각 (부재 시 Spider가 현재 시각으로 채워야 함) |
 | `content` | `str` | ❌ | 본문 내용 (없으면 빈 문자열) |
+| `views` | `int` | ❌ | 조회수 (게시글 인기도 판단용, 없으면 0 or None) |
 
 ### 2.2. 확장 필드 (Pipeline이 주입)
 필터링이나 분석 모듈을 새로 만들 때, 다음 필드들을 조작하여 알림 로직을 제어할 수 있습니다.
@@ -39,7 +41,7 @@ TriCrawl은 Scrapy의 **파이프라인 패턴**을 따릅니다. 데이터는 �
 | `risk_level` | Filter | 위험도 (`HIGH`, `MEDIUM`, `LOW`, `CRITICAL`) | 알림 색상 및 이모지 결정 (기본값: `HIGH`) |
 | `matched_keywords` | Filter | 매칭된 키워드 리스트 (`list[str]`) | Embed 메시지의 "매칭 키워드" 필드에 표시됨 |
 | `matched_targets` | Filter | 매칭된 타겟 키워드 리스트 (`list[str]`) | 타겟-온리 매칭 시 CRITICAL 판정에 필수적으로 사용됨 |
-| `author_contacts` | Archive | 추출된 연락처 정보 (`dict`) | (현재는 알림에 미표시, 아카이브용) |
+| `author_contacts` | Supabase | 추출된 연락처 정보 (`dict`) | (현재는 알림에 미표시, DB 저장용) |
 
 > **⚠️ 주의:** `risk_level`을 설정하지 않으면 알림 모듈은 무조건 **🔴 HIGH**로 간주합니다.
 
