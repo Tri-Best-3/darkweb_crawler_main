@@ -15,6 +15,7 @@ Scrapy 프레임워크를 기반으로 하며, Docker화된 Tor 프록시를 통
 - `Pre-Request Dedup` 도입 통일, 이미 수집된 ID는 상세 페이지 요청 단계에서 즉시 스킵
 - 데이터 필드 표준화 및 조회수(`views`) 수집 추가
 - 하드코딩 제거 및 각종 오류 수정
+  
 [CLI 및 로직]
 - `RichProgress` 추가, 실시간 크롤링 상태(수집/스킵/에러) 시각화 및 한글 에러 메시지 제공
 - 크롤링 데이터에서 Telegram, Email, Discord 등 자동 추출하여 DB(`author_contacts`)에 jsonb 형식 저장
