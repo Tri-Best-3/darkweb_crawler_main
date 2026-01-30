@@ -51,3 +51,7 @@ spiders:
     boards:
       hacked_db: 3
       malware: 3
+  
+  bfdx:
+    boards:
+      "main-board": 1
