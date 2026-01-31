@@ -37,7 +37,7 @@ class AbyssSpider(scrapy.Spider):
         'DEDUP_PRUNE_UNSEEN': True,
         # .onion 요청은 requests 기반 다운로드로 처리 (Scrapy 기본 다운로더의 socks 미지원 회피)
         'DOWNLOADER_MIDDLEWARES': {
-            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 900,
+            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 543,
             'tricrawl.middlewares.TorProxyMiddleware': None,
             'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': None,
         }
@@ -45,7 +45,7 @@ class AbyssSpider(scrapy.Spider):
     
     def __init__(self, *args, **kwargs):
         """YAML 설정 로드 후 start_urls를 구성한다."""
-        super(AbyssSpider, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         
         # 설정 파일 로드 (Namespaced)
         self.config = {}
@@ -187,6 +187,12 @@ class AbyssSpider(scrapy.Spider):
                     # Title + Description Hash
                     dedup_key = f"{item['title']}|{description}"
                     item["dedup_id"] = hashlib.md5(dedup_key.encode()).hexdigest()
+                    
+                    # [Pre-Request Dedup] 이미 DB에 있으면 스킵
+                    if hasattr(self, 'seen_ids') and item["dedup_id"] in self.seen_ids:
+                        logger.debug(f"[Abyss] Pre-skip: {title[:30]} (already in DB)")
+                        self.crawler.stats.inc_value('pre_dedup/skipped')
+                        continue
                     
                     content_parts = [str(description)]
                     if isinstance(links, list):

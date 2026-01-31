@@ -185,6 +185,7 @@ class PlayNewsSpider(scrapy.Spider):
             # [Pre-Request Dedup] 이미 DB에 있으면 상세 페이지 요청 스킵
             if hasattr(self, 'seen_ids') and item["dedup_id"] in self.seen_ids:
                 logger.debug(f"Pre-skip: {title[:30]} (already in DB)")
+                self.crawler.stats.inc_value('pre_dedup/skipped')
                 continue
 
             if not topic_id:
