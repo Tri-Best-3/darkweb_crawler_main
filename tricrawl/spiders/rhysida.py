@@ -1,4 +1,5 @@
 import scrapy
+import hashlib
 from datetime import datetime, timezone
 from tricrawl.items import LeakItem
 import yaml
@@ -94,6 +95,16 @@ class RhysidaSpider(scrapy.Spider):
             # 여기서는 제목 링크를 원본 링크로 사용
             target_url = post.css('div.h4 a::attr(href)').get()
             
+            # dedup_id 생성 (title + rhysida 기반)
+            dedup_key = f"{title}|rhysida"
+            dedup_id = hashlib.md5(dedup_key.encode()).hexdigest()
+            
+            # [Pre-Request Dedup] 이미 DB에 있으면 스킵
+            if hasattr(self, 'seen_ids') and dedup_id in self.seen_ids:
+                logger.debug(f"[Rhysida] Pre-skip: {title[:30]} (already in DB)")
+                self.crawler.stats.inc_value('pre_dedup/skipped')
+                continue
+            
             yield LeakItem(
                 source="Rhysida",
                 title=title,
@@ -102,7 +113,7 @@ class RhysidaSpider(scrapy.Spider):
                 timestamp=datetime.now(timezone.utc).isoformat(),  # 날짜 없음 -> 현재시간
                 content=full_content,
                 category="Ransomware",
-                site_type="Ransomware",  # ⭐ 필수
-                dedup_id=None,
+                site_type="Ransomware",
+                dedup_id=dedup_id,
                 views=None
             )

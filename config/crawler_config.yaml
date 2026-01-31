@@ -1,7 +1,7 @@
 # 크롤러 설정
 # 전역 설정
 global:
-  days_to_crawl: 14        # 최근 14일 데이터 수집, 첫 빌딩 시 권장. 이후 1일~2일 단위로 수정 후 스케쥴링 권장
+  days_to_crawl: 30        # 최근 30일 데이터 수집, 첫 빌딩 시 권장. 이후 1일~2일 단위로 수정 후 스케쥴링 권장
 
 # 스파이더별 설정
 spiders:
@@ -68,3 +68,7 @@ spiders:
 
   akira:
     target_url: "https://akiral2iz6a7qgd3ayp3l6yub7xx2uep76idk3u2kollpj5z3z636bad.onion/"
+
+  # LockBit 5.0 - 새 버전 (CAPTCHA 우회 필요 시 config/lockbit5_cookies.json 사용)
+  lockbit5:
+    target_url: "http://lockbitapt67g6rwzjbcxnww5efpg4qok6vpfeth7wx3okj52ks4wtad.onion/"
