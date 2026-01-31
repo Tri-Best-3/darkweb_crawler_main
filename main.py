@@ -152,21 +152,48 @@ def _extract_stats_from_log(log_file):
 
  
 def get_docker_status():
-    """Docker 컨테이너 상태 확인 (tricrawl 관련 컨테이너 우선)."""
+    """Docker 컨테이너 상태 확인 (Superset, Tor, Worker, DB 등)."""
     # Docker 컨테이너 상태 확인
+    target_services = {
+        "tricrawl-tor": "Tor Proxy",
+        "superset-app": "Superset",
+        "superset-db": "Meta DB",
+        "superset-cache": "Redis",
+        "tricrawl-worker": "Worker"
+    }
+    
     try:
+        # 이름과 상태를 함께 가져옴
         result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}"],
-            capture_output=True, text=True, timeout=10
+            ["docker", "ps", "--format", "{{.Names}}:{{.Status}}"],
+            capture_output=True, text=True, timeout=5, encoding="utf-8"
         )
-        if result.returncode == 0 and result.stdout.strip():
-            containers = result.stdout.strip().split("\n")
-            # tricrawl 관련 컨테이너만 필터
-            tricrawl_containers = [c for c in containers if "tricrawl" in c.lower()]
-            return True, tricrawl_containers if tricrawl_containers else containers
-        return False, []
-    except:
-        return False, []
+        if result.returncode != 0:
+            return False, {}
+            
+        running_containers = {}
+        for line in result.stdout.splitlines():
+            if ":" in line:
+                name, status = line.split(":", 1)
+                running_containers[name] = status.strip()
+        
+        # 전체가 다 떠있는지 여부 (Worker는 꺼져있어도 됨)
+        core_services = ["tricrawl-tor", "superset-app", "superset-db"]
+        all_up = all(s in running_containers for s in core_services)
+        
+        status_map = {}
+        for svc, label in target_services.items():
+            is_running = svc in running_containers
+            status_text = running_containers.get(svc, "Stopped")
+            if is_running:
+                # "Up 2 hours", "Up 3 seconds (health: starting)" 등에서 핵심만 파싱
+                if "Up" in status_text:
+                    status_text = "Running"
+            status_map[label] = status_text
+            
+        return all_up, status_map
+    except Exception:
+        return False, {}
 
 
 def get_tor_status():
@@ -291,10 +318,32 @@ def status():
     
     print_guide()
     
-    # Stage 1: Docker < 도커 데스크톱 실행되어 있는지 확인하는 코멘트 추후 필요
-    docker_ok, containers = get_docker_status()
-    docker_text = f"{len(containers)} running" if docker_ok else "Stopped"
-    panel1 = build_stage_panel("DOCKER", "System", "🐳", docker_ok, docker_text, "Start Docker first")
+    # Stage 1: Docker Status Table
+    docker_ok, status_map = get_docker_status()
+    
+    if HAS_RICH and status_map:
+        # 상세 상태 테이블
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column("Service", style="bold white")
+        grid.add_column("Status")
+        
+        for label, state in status_map.items():
+            color = "green" if state == "Running" else "dim"
+            icon = "🟢" if state == "Running" else "⚪"
+            grid.add_row(label, f"[{color}]{icon} {state}[/{color}]")
+            
+        panel1 = Panel(
+            grid,
+            title="[bold]🐳 Docker Cluster[/bold]",
+            subtitle=f"{'All Systems Go' if docker_ok else 'Partial/Down'}",
+            border_style="green" if docker_ok else "yellow",
+            width=32,
+            padding=(0, 1)
+        )
+    else:
+        # Fallback
+        docker_text = "Running" if docker_ok else "Stopped"
+        panel1 = build_stage_panel("DOCKER", "System", "🐳", docker_ok, docker_text, "Start Docker first")
     
     # Stage 2: Tor Proxy
     tor_ok, tor_addr = get_tor_status()
@@ -496,39 +545,56 @@ def run_crawler(spider="test", limit=None):
 
     start_time = time.time()
     original_cwd = Path.cwd()
-    os.chdir(TRICRAWL_DIR)
+    os.chdir(TRICRAWL_DIR) # 이 부분은 유지하거나 Docker 실행 시엔 제거해도 됨 (PROJECT_ROOT가 더 중요)
+    
     try:
-        os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "tricrawl.settings")
+        log_file_rel = f"tricrawl/logs/last_run.log" # Docker 내부 경로 기준 아님, 호스트 기준
+        
+        # 1. 로그 파일 초기화 (호스트에서)
         try:
             log_file.write_text("", encoding="utf-8")
         except Exception:
             pass
-
+            
+        # 2. Docker Command 구성
+        # docker-compose run --rm crawler scrapy crawl <spider> -a days_limit=...
         cmd = [
-            sys.executable,
-            "-m",
-            "scrapy",
-            "crawl",
+            "docker-compose", 
+            "run", 
+            "--rm",            # 실행 후 컨테이너 삭제 (Worker는 1회용)
+            "crawler", 
+            "scrapy", 
+            "crawl", 
             spider,
-            "-a",
-            f"days_limit={days_limit}",
+            "-a", 
+            f"days_limit={days_limit}"
         ]
-
-        # LOG_FILE 인자 제거 (settings.py에서 처리)
-        # cmd.extend(["-s", f"LOG_FILE={log_file}"])
-
+        
+        # Webhook Pass-through
         if not DISCORD_ENABLED:
             cmd.extend(["-s", "DISCORD_WEBHOOK_URL="])
+            
+        # 로그 파일 설정 (Docker 내부 경로)
+        # settings.py가 TRICRAWL_LOG_FILE 환경변수를 쓰므로 이걸 주입
+        # Dockerfile에서 WORKDIR이 /app 이므로 /app/tricrawl/logs/...
+        docker_log_path = "/app/tricrawl/logs/last_run.log"
+        
+        # 환경변수 전달 (-e)
+        env_args = ["-e", f"TRICRAWL_LOG_FILE={docker_log_path}"]
+        
+        # cmd 리스트 중간에 env 삽입 (run 뒤에)
+        # docker-compose run -e KEY=VAL crawler ...
+        final_cmd = cmd[:3] + env_args + cmd[3:]
 
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        env.setdefault("PYTHONUTF8", "1")
-        env["TRICRAWL_LOG_FILE"] = str(log_file) # settings.py로 전달
-        pythonpath = str(PROJECT_ROOT)
-        if env.get("PYTHONPATH"):
-            pythonpath = f"{pythonpath}{os.pathsep}{env['PYTHONPATH']}"
-        env["PYTHONPATH"] = pythonpath
-        env.setdefault("SCRAPY_SETTINGS_MODULE", "tricrawl.settings")
-        result = subprocess.run(cmd, cwd=str(TRICRAWL_DIR), env=env)
+        if HAS_RICH:
+             console.print(f"[dim]Command: {' '.join(final_cmd)}[/dim]")
+             
+        # 실행
+        # cwd는 docker-compose.yml이 있는 PROJECT_ROOT여야 함
+        result = subprocess.run(
+            final_cmd, 
+            cwd=str(PROJECT_ROOT),
+        )
         exit_code = result.returncode
 
         print()
@@ -536,11 +602,12 @@ def run_crawler(spider="test", limit=None):
         summary_lines = []
         summary_lines.append("=" * 60)
         if exit_code == 0:
-            summary_lines.append("크롤링 완료")
+            summary_lines.append("크롤링 완료 (Docker Worker)")
         else:
             summary_lines.append(f"크롤링 종료 (코드: {exit_code})")
         summary_lines.append(f"소요 시간: {elapsed}")
-
+        
+        # 3. 로그 분석 (호스트에 공유된 파일을 읽음)
         stats = _extract_stats_from_log(log_file)
         if stats:
             if "item_scraped_count" in stats:
@@ -549,10 +616,6 @@ def run_crawler(spider="test", limit=None):
                 summary_lines.append(f"필터/중복 제외: {stats['item_dropped_count']}")
             if "discord_notify/sent" in stats:
                 summary_lines.append(f"알림 전송: {stats['discord_notify/sent']}")
-            if "downloader/request_count" in stats:
-                summary_lines.append(f"요청: {stats['downloader/request_count']}")
-            if "downloader/response_count" in stats:
-                summary_lines.append(f"응답: {stats['downloader/response_count']}")
             if "log_count/ERROR" in stats or "log_count/WARNING" in stats:
                 errors = stats.get("log_count/ERROR", 0)
                 warnings = stats.get("log_count/WARNING", 0)
@@ -560,11 +623,7 @@ def run_crawler(spider="test", limit=None):
         summary_lines.append(f"로그 파일: {log_file}")
         summary_lines.append("=" * 60)
 
-        # 콘솔 출력 제거 - Rich Progress Panel이 담당
-        # for line in summary_lines:
-        #     print(line)
-
-        # 로그 파일에만 기록
+        # 로그 파일에 요약 추가
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write("\n")
@@ -572,6 +631,7 @@ def run_crawler(spider="test", limit=None):
                     f.write(f"{line}\n")
         except Exception:
             pass
+            
     except KeyboardInterrupt:
         print()
         print("중단됨")
