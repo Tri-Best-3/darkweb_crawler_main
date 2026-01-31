@@ -82,10 +82,10 @@ services:
     environment:
       - TOR_PROXY_HOST=tricrawl-tor
       - TOR_PROXY_PORT=9050
+      - PYTHONPATH=/app
+    network_mode: service:tor
     volumes:
       - ./tricrawl/logs:/app/tricrawl/logs
-      - ./config:/app/config
-    network_mode: service:tor
     depends_on:
       - tor
 

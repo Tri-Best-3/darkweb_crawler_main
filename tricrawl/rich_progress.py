@@ -1,11 +1,9 @@
 """
 Rich Progress Bar Extension
-
-Scrapy 크롤링 진행 상황을 시각적으로 표시하는 확장.
-- 실시간 진행률 표시 (Items, Requests, Errors)
-- 시작 시 설정 상태 표시 (Discord, Supabase 등)
-- 최근 크롤링 데이터 한 줄 표시
-- 완료 시 최종 통계 출력
+- Live progress display (Items, Requests, Errors)
+- Startup status summary (Discord, Supabase connection)
+- Recent item preview
+- Final stats summary
 """
 import os
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
@@ -58,7 +56,7 @@ class RichProgress:
         return ext
 
     def _print_startup_status(self, spider):
-        """시작 시 설정 상태 출력."""
+        """Print startup configuration summary."""
         settings = self.crawler.settings
         
         # Discord 상태
@@ -97,7 +95,7 @@ class RichProgress:
         ))
 
     def _build_display(self):
-        """Progress Bar + 최근 아이템을 합친 표시 그룹 생성."""
+        """Create display group (Progress Bar + Recent Items)."""
         from rich.text import Text
         return Group(
             self.progress,
@@ -105,7 +103,7 @@ class RichProgress:
         )
 
     def spider_opened(self, spider):
-        """스파이더 시작 시 상태 표시 및 Progress Bar 시작."""
+        """Initialize progress bar on spider open."""
         self._print_startup_status(spider)
         self.console.print()  # 빈 줄
         
@@ -119,13 +117,13 @@ class RichProgress:
         self.live = Live(
             self._build_display(),
             console=self.console,
-            refresh_per_second=10,  # 초당 10회 업데이트
+            refresh_per_second=10,
             transient=False,
         )
         self.live.start()
 
     def spider_closed(self, spider):
-        """스파이더 종료 시 Progress Bar 정지 및 최종 통계 출력."""
+        """Stop progress bar and print final stats."""
         if self.live:
             self.live.stop()
         
@@ -166,33 +164,35 @@ class RichProgress:
         ))
 
     def request_scheduled(self, request, spider):
-        """요청 스케줄 시 상태 표시 (첫 요청 = Tor 연결 중)."""
+        """Update status on request schedule (First req = Tor conn)."""
         if not self.first_response:
-            self.last_item_text = "[yellow]🌐 Tor 연결 중...[/yellow]"
-            if self.live:
-                self.live.update(self._build_display())
+            new_text = "[yellow]🌐 Tor 연결 중...[/yellow]"
+            if self.last_item_text != new_text:
+                self.last_item_text = new_text
+                # Live refresh loop will pick this up; no need to force update on every request
+                # which causes flooding if many requests are scheduled at once.
 
     def item_scraped(self, item, spider):
-        """아이템 스크랩 시 상태 업데이트."""
+        """Update status on item scrape."""
         title = item.get("title", "")[:30]
         self.last_item_text = f"[cyan]⏳ 크롤링 중[/cyan] | [green]✅ 수집: {title}[/green]"
         self._update_status()
 
     def item_dropped(self, item, response, exception, spider):
-        """아이템 드롭 시 상태 업데이트."""
+        """Update status on item drop."""
         title = item.get("title", "")[:30] if hasattr(item, "get") else str(item)[:30]
         self.last_item_text = f"[cyan]⏳ 크롤링 중[/cyan] | [dim]🔄 스킵: {title}[/dim]"
         self._update_status()
 
     def response_received(self, response, request, spider):
-        """응답 수신 시 상태 업데이트."""
+        """Update status on response received."""
         if not self.first_response:
             self.first_response = True
             self.last_item_text = "[cyan]⏳ 크롤링 중...[/cyan]"
         self._update_status()
 
     def _update_status(self):
-        """Progress Bar 상태 텍스트 업데이트."""
+        """Update progress bar status text."""
         if self.task_id is None:
             return
             

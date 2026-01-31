@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 from dotenv import load_dotenv
 
-# .env 파일 로드 (환경변수 설정)
 load_dotenv()
 
 def _configure_utf8_output():
@@ -81,11 +80,9 @@ if HAS_RICH and not plain_mode:
 else:
     HAS_RICH = False
     console = None
-
 # Global State
 DISCORD_ENABLED = os.getenv("DISCORD_ENABLED", "true").lower() in ("true", "1", "yes")
 
-# 프로젝트 경로
 PROJECT_ROOT = Path(__file__).parent
 TRICRAWL_DIR = PROJECT_ROOT / "tricrawl"
 LOG_DIR = TRICRAWL_DIR / "logs"
@@ -133,7 +130,6 @@ def _extract_stats_from_log(log_file):
     except Exception:
         return {}
 
-    stats = {}
     keys = [
         "item_scraped_count",
         "item_dropped_count",
@@ -143,6 +139,8 @@ def _extract_stats_from_log(log_file):
         "log_count/ERROR",
         "log_count/WARNING",
     ]
+    
+    stats = {}
     for key in keys:
         match = re.search(rf"'{re.escape(key)}':\s*(\d+)", text)
         if match:
@@ -153,17 +151,14 @@ def _extract_stats_from_log(log_file):
  
 def get_docker_status():
     """Docker 컨테이너 상태 확인 (Superset, Tor, Worker, DB 등)."""
-    # Docker 컨테이너 상태 확인
     target_services = {
         "tricrawl-tor": "Tor Proxy",
         "superset-app": "Superset",
         "superset-db": "Meta DB",
-        "superset-cache": "Redis",
-        "tricrawl-worker": "Worker"
+        "superset-cache": "Redis"
     }
     
     try:
-        # 이름과 상태를 함께 가져옴
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}:{{.Status}}"],
             capture_output=True, text=True, timeout=5, encoding="utf-8"
@@ -177,7 +172,6 @@ def get_docker_status():
                 name, status = line.split(":", 1)
                 running_containers[name] = status.strip()
         
-        # 전체가 다 떠있는지 여부 (Worker는 꺼져있어도 됨)
         core_services = ["tricrawl-tor", "superset-app", "superset-db"]
         all_up = all(s in running_containers for s in core_services)
         
@@ -186,7 +180,6 @@ def get_docker_status():
             is_running = svc in running_containers
             status_text = running_containers.get(svc, "Stopped")
             if is_running:
-                # "Up 2 hours", "Up 3 seconds (health: starting)" 등에서 핵심만 파싱
                 if "Up" in status_text:
                     status_text = "Running"
             status_map[label] = status_text
@@ -198,7 +191,6 @@ def get_docker_status():
 
 def get_tor_status():
     """Tor 프록시 연결 상태 확인 (SOCKS5 연결 테스트)."""
-    # Tor 프록시 연결 상태 확인
     host = os.getenv("TOR_PROXY_HOST", "127.0.0.1")
     port = int(os.getenv("TOR_PROXY_PORT", "9050"))
     
@@ -215,7 +207,6 @@ def get_tor_status():
 
 def get_available_spiders():
     """사용 가능한 스파이더 목록 가져오기 (Scrapy 로더 → subprocess fallback)."""
-    # 사용 가능한 스파이더 목록 가져오기(scrapy list)
     if HAS_SCRAPY:
         try:
             os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "tricrawl.settings")
@@ -243,17 +234,21 @@ def get_available_spiders():
 
 
 def get_webhook_status():
-    """Discord 웹훅 설정 상태 확인 (.env 기준)."""
-    # Discord 웹훅 설정 상태 확인
+    """Discord 웹훅 설정 상태 확인 (.env 및 활성화 여부)."""
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
-    if webhook_url and "discord.com/api/webhooks" in webhook_url:
-        return True, "설정됨"
-    return False, "미설정"
+    is_set = bool(webhook_url and "discord.com/api/webhooks" in webhook_url)
+    
+    if not is_set:
+        return False, "미설정"
+    
+    if DISCORD_ENABLED:
+        return True, "ON (설정됨)"
+    else:
+        return False, "OFF (중지됨)"
 
 
 def build_stage_panel(title, subtitle, icon_emoji, status_ok, status_text, action_hint):
     """Rich Panel 형태의 상태 박스를 생성."""
-    # Rich Panel로 스테이지 박스 생성
     status_icon = "[green]✅[/green]" if status_ok else "[red]❌[/red]"
     color = "green" if status_ok else "red"
     
@@ -273,7 +268,6 @@ def build_stage_panel(title, subtitle, icon_emoji, status_ok, status_text, actio
 
 def print_header():
     """콘솔 상단 헤더/타이틀 출력."""
-    # 헤더 출력
     clear_screen()
     if HAS_RICH:
         console.print()
@@ -288,28 +282,33 @@ def print_header():
 
 def print_guide():
     """사전 준비 및 빠른 시작 안내 패널 출력."""
-    # 가이드 패널 출력
     if not HAS_RICH:
         return
     
-    prereq = """[bold]Prerequisites[/bold]
-• Docker Desktop 실행 필요
-• .env 파일 설정 (Webhook)"""
+    prereq_content = (
+        "[bold]1. Docker Desktop[/bold]\n"
+        "   실행 상태여야 합니다.\n\n"
+        "[bold]2. .env 설정[/bold]\n"
+        "   [cyan].env.example[/cyan]을 복사해서\n"
+        "   [cyan].env[/cyan]를 만드세요."
+    )
 
-    quickstart = """[bold]Quick Start[/bold]
-1️  Docker Start
-2️  Crawl"""
+    quickstart_content = (
+        "[bold green]Step 1[/bold green]: [bold]System On (5)[/bold]\n"
+        "   인프라(DB, Tor)를 켭니다.\n\n"
+        "[bold green]Step 2[/bold green]: [bold]Action (1 or 2)[/bold]\n"
+        "   크롤링을 하거나 대시보드를 엽니다."
+    )
 
     console.print(Columns([
-        Panel(prereq, title="📋 사전 준비", border_style="dim", width=42),
-        Panel(quickstart, title="🚀 빠른 시작", border_style="dim", width=42)
+        Panel(prereq_content, title="📋 사전 체크 (Prerequisites)", border_style="dim", width=40),
+        Panel(quickstart_content, title="🚀 워크플로우 (Workflow)", border_style="blue", width=40)
     ], expand=False))
     console.print()
 
 
 def status():
     """Docker/Tor/Webhook의 전체 상태를 한 화면에 표시."""
-    # 전체 상태 확인
     print_header()
     
     if not HAS_RICH:
@@ -318,45 +317,59 @@ def status():
     
     print_guide()
     
-    # Stage 1: Docker Status Table
     docker_ok, status_map = get_docker_status()
-    
-    if HAS_RICH and status_map:
-        # 상세 상태 테이블
-        grid = Table.grid(padding=(0, 2))
-        grid.add_column("Service", style="bold white")
-        grid.add_column("Status")
-        
-        for label, state in status_map.items():
-            color = "green" if state == "Running" else "dim"
-            icon = "🟢" if state == "Running" else "⚪"
-            grid.add_row(label, f"[{color}]{icon} {state}[/{color}]")
-            
-        panel1 = Panel(
-            grid,
-            title="[bold]🐳 Docker Cluster[/bold]",
-            subtitle=f"{'All Systems Go' if docker_ok else 'Partial/Down'}",
-            border_style="green" if docker_ok else "yellow",
-            width=32,
-            padding=(0, 1)
-        )
-    else:
-        # Fallback
-        docker_text = "Running" if docker_ok else "Stopped"
-        panel1 = build_stage_panel("DOCKER", "System", "🐳", docker_ok, docker_text, "Start Docker first")
-    
-    # Stage 2: Tor Proxy
     tor_ok, tor_addr = get_tor_status()
-    tor_text = "Connected" if tor_ok else "Disconnected"
-    tor_hint = "Check Docker" if not docker_ok else f"Check {tor_addr}"
-    panel2 = build_stage_panel("TOR", "Network", "🧅", tor_ok, tor_text, tor_hint)
-    
-    # Stage 3: Webhook
     webhook_ok, webhook_text = get_webhook_status()
-    panel3 = build_stage_panel("WEBHOOK", "Alert", "🔔", webhook_ok, webhook_text, ".env Check")
+
+    grid = Table.grid(padding=(1, 2))
+    grid.add_column("Section", justify="center")
+    grid.add_column("Content")
+
+    # 1. Docker Cluster Status
+    docker_table = Table(box=None, show_header=False, padding=(0, 1))
+    docker_table.add_column("Service")
+    docker_table.add_column("Status")
     
-    # 가로로 출력
-    console.print(Columns([panel1, panel2, panel3], equal=True, expand=False))
+    if status_map:
+        for label, state in status_map.items():
+            icon = "🟢" if state == "Running" else "⚪"
+            style = "bold green" if state == "Running" else "dim"
+            docker_table.add_row(label, f"[{style}]{icon} {state}[/{style}]")
+    else:
+        docker_table.add_row("Docker", "[red]❌ Stopped[/red]")
+
+    docker_panel = Panel(
+        docker_table,
+        title="[bold]🐳 Infrastructure[/bold]",
+        border_style="green" if docker_ok else "red",
+        width=35
+    )
+
+    # 2. Network & Alert Status
+    net_table = Table(box=None, show_header=False, padding=(0, 1))
+    net_table.add_column("Label")
+    net_table.add_column("Value")
+    
+    # Tor
+    tor_icon = "🟢" if tor_ok else "🔴"
+    tor_status = f"[bold green]Connected[/bold green]" if tor_ok else "[red]Disconnected[/red]"
+    net_table.add_row(f"{tor_icon} Tor Proxy", tor_status)
+    
+    # Webhook
+    web_icon = "🔔" if webhook_ok else "🔕"
+    web_status = f"[green]{webhook_text}[/green]" if webhook_ok else f"[yellow]{webhook_text}[/yellow]"
+    net_table.add_row(f"{web_icon} Webhook", web_status)
+
+    net_panel = Panel(
+        net_table,
+        title="[bold]🌐 Network & Alert[/bold]",
+        border_style="blue",
+        width=35
+    )
+
+    # 배치
+    console.print(Columns([docker_panel, net_panel], expand=False))
+    console.print()
 
 
 def check_docker_daemon():
@@ -377,8 +390,6 @@ def check_docker_daemon():
 
 def start_docker():
     """Docker 컨테이너 시작 + Tor 연결 대기."""
-    # Docker 시작 및 Tor 연결 대기
-    # Docker Daemon 확인
     if not check_docker_daemon():
         if HAS_RICH:
             console.print(Panel(
@@ -397,12 +408,13 @@ def start_docker():
     # Rich Status Spinner로 실행 및 대기
     if HAS_RICH:
         with console.status("[bold green]🐳 Docker 컨테이너를 시작하고 있습니다...[/bold green]") as status:
-            # Docker Up
             try:
                 result = subprocess.run(
                     ["docker-compose", "up", "-d"],
                     cwd=str(PROJECT_ROOT),
-                    capture_output=True, text=True
+                    capture_output=True, text=True,
+                    encoding="utf-8",
+                    errors="replace"
                 )
 
                 # Conflict 발생 시 자동 복구 시도
@@ -410,13 +422,13 @@ def start_docker():
                     if status:
                         status.update("[bold yellow]⚠️ 좀비 컨테이너 발견! 강제 정리 중...[/bold yellow]")
                     
-                    # 1. 명시적 강제 삭제 (가장 확실함)
                     subprocess.run(
                         ["docker", "rm", "-f", "tricrawl-tor"],
-                        capture_output=True, text=True
+                        capture_output=True, text=True,
+                        encoding="utf-8",
+                        errors="replace"
                     )
                     
-                    # 2. Compose Down도 같이 실행 (네트워크 정리 등)
                     subprocess.run(
                         ["docker-compose", "down"],
                         cwd=str(PROJECT_ROOT),
@@ -425,7 +437,6 @@ def start_docker():
                     
                     time.sleep(2)
                     
-                    # 3. 재시도
                     result = subprocess.run(
                         ["docker-compose", "up", "-d"],
                         cwd=str(PROJECT_ROOT),
@@ -467,13 +478,14 @@ def start_docker():
 
 def stop_docker():
     """Docker 컨테이너 종료."""
-    # Docker 종료
     print("\n🐳 Stopping Docker containers...")
     try:
         result = subprocess.run(
             ["docker-compose", "down"],
             cwd=str(PROJECT_ROOT),
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            encoding="utf-8",
+            errors="replace"
         )
         if result.returncode == 0:
             print("✅ Docker containers stopped")
@@ -485,7 +497,6 @@ def stop_docker():
 
 def view_logs(lines=20):
     """로그 파일을 OS 기본 프로그램으로 연다."""
-    # 로그 파일 열기, 터미널 출력 방식에서 외부 프로그램 작동 방식으로(기본 프로그렘으로, 난 메모장)
     log_file = LOG_DIR / "last_run.log"
     if not log_file.exists():
         print("\n로그 파일이 없습니다. 먼저 크롤러를 실행하세요.")
@@ -520,7 +531,6 @@ def run_crawler(spider="test", limit=None):
         "abyss": "Abyss (Ransomware Site)",
     }
 
-    # 설정 파일 로드
     config_path = PROJECT_ROOT / "config" / "crawler_config.yaml"
     days_limit = 3
 
@@ -545,10 +555,10 @@ def run_crawler(spider="test", limit=None):
 
     start_time = time.time()
     original_cwd = Path.cwd()
-    os.chdir(TRICRAWL_DIR) # 이 부분은 유지하거나 Docker 실행 시엔 제거해도 됨 (PROJECT_ROOT가 더 중요)
+    os.chdir(TRICRAWL_DIR) 
     
     try:
-        log_file_rel = f"tricrawl/logs/last_run.log" # Docker 내부 경로 기준 아님, 호스트 기준
+        log_file_rel = f"tricrawl/logs/last_run.log"
         
         # 1. 로그 파일 초기화 (호스트에서)
         try:
@@ -557,11 +567,10 @@ def run_crawler(spider="test", limit=None):
             pass
             
         # 2. Docker Command 구성
-        # docker-compose run --rm crawler scrapy crawl <spider> -a days_limit=...
         cmd = [
             "docker-compose", 
             "run", 
-            "--rm",            # 실행 후 컨테이너 삭제 (Worker는 1회용)
+            "--rm",
             "crawler", 
             "scrapy", 
             "crawl", 
@@ -570,31 +579,34 @@ def run_crawler(spider="test", limit=None):
             f"days_limit={days_limit}"
         ]
         
-        # Webhook Pass-through
         if not DISCORD_ENABLED:
             cmd.extend(["-s", "DISCORD_WEBHOOK_URL="])
             
-        # 로그 파일 설정 (Docker 내부 경로)
-        # settings.py가 TRICRAWL_LOG_FILE 환경변수를 쓰므로 이걸 주입
-        # Dockerfile에서 WORKDIR이 /app 이므로 /app/tricrawl/logs/...
         docker_log_path = "/app/tricrawl/logs/last_run.log"
         
         # 환경변수 전달 (-e)
-        env_args = ["-e", f"TRICRAWL_LOG_FILE={docker_log_path}"]
+        env_args = [
+            "-e", f"TRICRAWL_LOG_FILE={docker_log_path}",
+            "-e", "TERM=xterm-256color",
+            "-e", "PYTHONIOENCODING=utf-8"
+        ]
         
-        # cmd 리스트 중간에 env 삽입 (run 뒤에)
-        # docker-compose run -e KEY=VAL crawler ...
         final_cmd = cmd[:3] + env_args + cmd[3:]
 
         if HAS_RICH:
              console.print(f"[dim]Command: {' '.join(final_cmd)}[/dim]")
              
-        # 실행
-        # cwd는 docker-compose.yml이 있는 PROJECT_ROOT여야 함
+        if HAS_RICH:
+            console.print(f"[bold cyan]🚀 Spider '{spider}' 실행 중...[/bold cyan]")
+            console.print("[dim]Docker 컨테이너를 생성하고 크롤링을 수행합니다. (Detailed logs enabled)[/dim]")
+            
         result = subprocess.run(
             final_cmd, 
-            cwd=str(PROJECT_ROOT),
+            cwd=str(PROJECT_ROOT)
         )
+
+
+            
         exit_code = result.returncode
 
         print()
@@ -652,29 +664,44 @@ def print_menu():
     """메인 메뉴 출력 (Rich/Plain 모드 자동 선택)."""
     # 메뉴 출력
     if HAS_RICH:
-        table = Table(show_header=False, box=box.ROUNDED, border_style="blue")
-        table.add_column("Command", style="cyan")
-        table.add_column("Description")
-        table.add_column("Command", style="cyan") # 오른쪽
-        table.add_column("Description")
+        # 메인 레이아웃 테이블
+        grid = Table.grid(padding=(0, 4))
+        grid.add_column("Left", justify="left")
+        grid.add_column("Right", justify="left")
 
-        table.add_row("1", "🐳 Start Docker", "4", "📄 View Logs")
-        table.add_row("2", "🛑 Stop Docker", "5", f"🔔 Toggle Discord ({'ON' if DISCORD_ENABLED else 'OFF'})")
-        table.add_row("3", "🌑 Start Crawl", "6", "💾 Export DB to JSONL")
+        # 왼쪽: 핵심 작업 (Core Actions)
+        table_left = Table(box=box.SIMPLE, show_header=True, header_style="bold magenta")
+        table_left.add_column("🚀 Core Actions")
 
+        table_left.add_row("[bold magenta]1[/bold magenta]. 🌑 Start Crawl [dim](Run Worker)[/dim]")
         mode = os.getenv("TRICRAWL_SUPERSET_MODE", "cloud").lower()
-        table.add_row("", "", "7", f"🔬 Open Dashboard ({mode.upper()})")
-        table.add_row("", "", "q", "👋 Quit")
+        table_left.add_row(f"[bold magenta]2[/bold magenta]. 🔬 Open Dashboard [dim]({mode.upper()})[/dim]")
+        table_left.add_row("[bold magenta]3[/bold magenta]. 📄 View Logs [dim](Notepad)[/dim]")
+        table_left.add_row("[bold magenta]4[/bold magenta]. 💾 Export DB [dim](JSONL/CSV)[/dim]")
 
-        console.print(table)
+        # 오른쪽: 시스템 관리 (System & Config)
+        table_right = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
+        table_right.add_column("⚙️  System & Config")
+
+        table_right.add_row("[bold cyan]5[/bold cyan]. 🐳 Start Docker [dim](System Up)[/dim]")
+        table_right.add_row("[bold cyan]6[/bold cyan]. 🛑 Stop Docker [dim](System Down)[/dim]")
+        table_right.add_row("[dim]──────────────────────────────[/dim]")
+        table_right.add_row(f"[bold cyan]7[/bold cyan]. 🔔 Toggle Discord [dim]({'ON' if DISCORD_ENABLED else 'OFF'})[/dim]")
+
+        # Grid에 추가
+        grid.add_row(table_left, table_right)
+        
+        # 하단 종료 메뉴
+        console.print(grid)
+        console.print("\n[dim]Press [bold]q[/bold] to Quit[/dim]")
         console.print()
     else:
         print("╭────┬────────────────────────────────┬────┬────────────────────────────────╮")
-        print("│ 1  │ 🐳 Start Docker                │ 4  │ 📄 View Logs                   │")
-        print("│ 2  │ 🛑 Stop Docker                 │ 5  │ 🔔 Toggle Discord              │")
-        print("│ 3  │ 🌑 Start Crawl                 │ 6  │ 💾 Export DB to JSONL          │")
-        print("│    │                                │ 7  │ 🔬 Open Dashboard              │")
-        print("│                                     │ q  │ 👋 Quit                        │")
+        print("│ 1  │ 🌑 Start Crawl                 │ 5  │ � Start Docker                │")
+        print("│ 2  │ � Open Dashboard              │ 6  │ � Stop Docker                 │")
+        print("│ 3  │ 📄 View Logs                   │ 7  │ � Toggle Discord              │")
+        print("│ 4  │ 💾 Export DB to CSV            │    │                                │")
+        print("│ q  │ 👋 Quit                        │    │                                │")
         print("╰────┴────────────────────────────────┴────┴────────────────────────────────╯")
 
 
@@ -698,15 +725,7 @@ def interactive_mode():
             continue
         
         elif cmd == '1':
-            start_docker()
-            input("\n  [Enter] Continue...")
-            
-        elif cmd == '2':
-            stop_docker()
-            input("\n  [Enter] Continue...")
-            
-        elif cmd == '3':
-            # Dark Web Crawl
+            # Dark Web Crawl (Moved to 1)
             tor_ok, _ = get_tor_status()
             if not tor_ok:
                 print("\n⚠️  Warning: Tor Proxy is NOT connected!")
@@ -766,21 +785,64 @@ def interactive_mode():
                 print("❌ Invalid selection.")
 
             if selected_spider:
-                # 설정에 따라 자동 실행(prompt 제거)
                 run_crawler(selected_spider)
                 input("\n  [Enter] Continue...")
-            
-            # 0번(Cancel) 선택 시 루프 밖으로 나감(바로 메인 메뉴로)
+        
+        elif cmd == '2':
+            # Superset Dashboard (Moved to 2)
+            try:
+                client = SupersetDashboardMiddleware()
+                url = client.get_url()
+                print(f"\n🔬 Superset Dashboard: {url}")
+                ok = client.open_dashboard()
+                if not ok:
+                    print("❌ 자동으로 브라우저를 열지 못했습니다. 위 URL을 직접 여세요.")
+            except (ValueError, NameError) as e:
+                # Middleware가 없거나 에러 발생 시 Fallback
+                mode = os.getenv("TRICRAWL_SUPERSET_MODE", "cloud").lower()
+                if mode == 'local':
+                    print("\n[Local Mode] Superset URL: http://localhost:8088")
+                else:
+                     print(f"\n[{mode.upper()} Mode] Dashboard URL: (Check your cloud provider)")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            input("\n  [Enter] Continue...")
 
-            
-        elif cmd == '4':
+        elif cmd == '3':
+            # View Logs (Moved to 3)
             view_logs(50)
             input("\n  [Enter] Continue...")
 
+        elif cmd == '4':
+            # Export (Moved to 4)
+            if not exporter:
+                print("⚠️  Exporter module not loaded. Check dependencies.")
+                continue
+            
+            jsonl_path = exporter.export_to_jsonl()
+            
+            if jsonl_path:
+                print("\n엑셀(CSV)로도 변환하시겠습니까?")
+                convert = input("  Convert to CSV? (Y/n): ").strip().lower()
+                if convert in ('', 'y', 'yes'):
+                    exporter.convert_to_csv(jsonl_path)
+            
+            input("\n  [Enter] Continue...")
+            
         elif cmd == '5':
+            # Start Docker (Moved to 5)
+            start_docker()
+            input("\n  [Enter] Continue...")
+            
+        elif cmd == '6':
+            # Stop Docker (Moved to 6)
+            stop_docker()
+            input("\n  [Enter] Continue...")
+            
+        elif cmd == '7':
+             # Toggle Discord (Moved to 7)
             DISCORD_ENABLED = not DISCORD_ENABLED
             
-            # .env 파일 업데이트 (상태 저장)
             try:
                 env_path = PROJECT_ROOT / ".env"
                 if env_path.exists():
@@ -799,40 +861,7 @@ def interactive_mode():
                         
                     env_path.write_text("\n".join(new_lines), encoding="utf-8")
             except Exception as e:
-                print(f"⚠️ Failed to save setting to .env: {e}")
-
-
-
-            print(f"\n🔔 Discord Notification: {status_text} (Saved)")
-            time.sleep(1)
-
-        elif cmd == '6':
-            if not exporter:
-                print("⚠️  Exporter module not loaded. Check dependencies.")
-                continue
-            
-            jsonl_path = exporter.export_to_jsonl()
-            
-            if jsonl_path:
-                print("\n엑셀(CSV)로도 변환하시겠습니까?")
-                convert = input("  Convert to CSV? (Y/n): ").strip().lower()
-                if convert in ('', 'y', 'yes'):
-                    exporter.convert_to_csv(jsonl_path)
-            
-            input("\n  [Enter] Continue...")
-
-
-        elif cmd == '7':
-            client = SupersetDashboardMiddleware()
-            url = client.get_url()
-            print(f"\n🔬 Superset Dashboard: {url}")
-            try:
-                ok = client.open_dashboard()
-                if not ok:
-                    print("❌ 자동으로 브라우저를 열지 못했습니다. 위 URL을 직접 여세요.")
-            except ValueError as e:
-                print(f"❌ {e}")
-            input("\n  [Enter] Continue...")
+                pass
 
 
         else:

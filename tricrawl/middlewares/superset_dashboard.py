@@ -1,6 +1,6 @@
 """
-Superset Dashboard
-- public Ip :  http://168.107.30.207:8088
+Superset Dashboard Middleware
+Handles opening the dashboard in browser (Local/Cloud).
 """
 
 import os
