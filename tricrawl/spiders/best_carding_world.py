@@ -50,7 +50,7 @@ class BestCardingWorldSpider(scrapy.Spider):
     
     def __init__(self, *args, **kwargs):
         """YAML 설정을 로드하고 start_urls/board limits를 구성한다."""
-        super(BestCardingWorldSpider, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         
         # 설정 파일 로드
         self.config = {}
@@ -157,6 +157,9 @@ class BestCardingWorldSpider(scrapy.Spider):
         # logger.info(f"BestCardingWorld 접속 (Page {page_count}/{current_max_pages})", url=response.url)
         
         self.logger.info("status=%s url=%s", response.status, response.url)
+        
+        # 전역 설정 기반 cutoff 날짜
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_limit)
 
         for row in response.css("li.row"):
             title = row.css("a.topictitle::text").get()
@@ -167,11 +170,16 @@ class BestCardingWorldSpider(scrapy.Spider):
 
             url = response.urljoin(href)
             
-            # lastpost_text = " ".join(row.css("dd.lastpost *::text").getall()).strip()
             author = row.css("dd.lastpost a.username-coloured::text").get() or "Unknown"
 
             dt_text = self.extract_lastpost_dt_text(row)
             dt = self.parse_forum_dt(dt_text)
+            
+            # 날짜 기반 필터링: cutoff 이전 게시글 스킵
+            if dt and dt < cutoff:
+                logger.debug(f"Skipping old post: {title[:30]} ({dt})")
+                continue
+            
             ts_iso = dt.isoformat() if dt else datetime.now(timezone.utc).isoformat()
             
 
@@ -205,6 +213,7 @@ class BestCardingWorldSpider(scrapy.Spider):
             
             if hasattr(self, 'seen_ids') and item["dedup_id"] in self.seen_ids:
                 logger.debug(f"Pre-skip: {title[:30]} (already in DB)")
+                self.crawler.stats.inc_value('pre_dedup/skipped')
                 continue
 
             yield scrapy.Request(

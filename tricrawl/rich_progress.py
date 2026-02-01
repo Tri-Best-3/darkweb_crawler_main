@@ -135,8 +135,22 @@ class RichProgress:
         resp_count = self.stats.get_value("downloader/response_count", 0)
         err_count = self.stats.get_value("log_count/ERROR", 0)
         
+        pre_dedup_skipped = self.stats.get_value('pre_dedup/skipped', 0)
+        discovered = self.stats.get_value('items/discovered', 0)
+        
+        # 간단하게 "최신 X건 전부 기존" 표시
+        if discovered > 0 and pre_dedup_skipped == discovered:
+            pre_dedup_text = f"최신 {discovered}건 일치(조기 종료)"
+        elif discovered > 0:
+            pre_dedup_text = f"조회 {discovered}건 중 {pre_dedup_skipped}건 일치"
+        elif pre_dedup_skipped > 0:
+            pre_dedup_text = f"{pre_dedup_skipped}건 일치"
+        else:
+            pre_dedup_text = "없음"
+        
         result_lines = [
-            f"📦  [bold]수집:[/bold] [bold green]{scraped}[/bold green]건",
+            f"📦  [bold]신규 수집:[/bold] [bold green]{scraped}[/bold green]건",
+            f"🔄  [bold]Pre-Dedup:[/bold] {pre_dedup_text}",
             f"🗑️   [bold]중복/필터:[/bold] {dropped}건",
             f"🌐  [bold]요청/응답:[/bold] {req_count}/{resp_count}",
             f"❌  [bold]에러:[/bold] [bold red]{err_count}[/bold red]건",
@@ -148,7 +162,7 @@ class RichProgress:
             title="[bold green]✨ Crawling Completed[/bold green]",
             border_style="green",
             padding=(0, 1),
-            width=40,
+            width=50,
         ))
 
     def request_scheduled(self, request, spider):
@@ -187,8 +201,11 @@ class RichProgress:
         req_count = self.stats.get_value("downloader/request_count", 0)
         err_count = self.stats.get_value("log_count/ERROR", 0)
 
+        pre_dedup = self.stats.get_value('pre_dedup/skipped', 0)
+
         info_text = (
             f"📦 [green]{scraped}[/green] | "
+            f"🔄 {pre_dedup} | "
             f"🗑️ {dropped} | "
             f"🌐 {req_count} | "
             f"❌ [red]{err_count}[/red]"

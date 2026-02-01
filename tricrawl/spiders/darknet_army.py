@@ -35,7 +35,7 @@ class DarkNetArmySpider(scrapy.Spider):
         'COOKIES_ENABLED': True,
         # DarkNet 전용 미들웨어 사용
         'DOWNLOADER_MIDDLEWARES': {
-            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 900,
+            'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 543,
             'tricrawl.middlewares.TorProxyMiddleware': None,
             'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': None,
         }
@@ -43,7 +43,7 @@ class DarkNetArmySpider(scrapy.Spider):
     
     def __init__(self, *args, **kwargs):
         """YAML 설정을 로드하고 start_urls/board limits를 구성한다."""
-        super(DarkNetArmySpider, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         
         # 설정 파일 로드
         self.config = {}
@@ -253,6 +253,7 @@ class DarkNetArmySpider(scrapy.Spider):
                 
                 if hasattr(self, "seen_ids") and pre_calc_id in self.seen_ids:
                     logger.debug(f"Skipping duplicate (Pre-check): {title[:15]}...")
+                    self.crawler.stats.inc_value('pre_dedup/skipped')
                     continue
 
                 # 상세 페이지 크롤링 요청

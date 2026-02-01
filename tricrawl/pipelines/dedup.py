@@ -83,30 +83,39 @@ class DeduplicationPipeline:
             self.supabase = create_client(url, key)
             logger.info(f"[{spider_name}] Supabase 연결 성공. 중복 ID 동기화 중...")
             
-            # 최근 저장된 데이터의 dedup_id만 가져옴 (가벼운 쿼리)
-            # limit을 설정하여 메모리 과부하 방지
-            res = self.supabase.table("darkweb_leaks")\
-                .select("dedup_id")\
-                .order("crawled_at", desc=True)\
-                .limit(self.max_entries)\
-                .execute()
+            # Supabase 기본 제한이 1000개이므로 페이지네이션으로 전체 로드
+            page_size = 1000
+            offset = 0
+            total_loaded = 0
             
-            if res.data:
-                count = 0
+            while total_loaded < self.max_entries:
+                res = self.supabase.table("darkweb_leaks")\
+                    .select("dedup_id")\
+                    .order("crawled_at", desc=True)\
+                    .range(offset, offset + page_size - 1)\
+                    .execute()
+                
+                if not res.data:
+                    break  # 더 이상 데이터 없음
+                    
                 for row in res.data:
                     did = row.get("dedup_id")
                     if did:
                         self.seen_hashes.add(did)
-                        count += 1
+                        total_loaded += 1
                 
-                # Stats에 저장 (RichProgress에서 읽을 수 있도록)
-                if self._crawler:
-                    self._crawler.stats.set_value("dedup/loaded_ids", count)
-                
-                logger.info(f"[{spider_name}] ✅ Supabase에서 {count}개의 중복 ID 로드 완료.")
+                if len(res.data) < page_size:
+                    break  # 마지막 페이지
+                    
+                offset += page_size
+            
+            # Stats에 저장 (RichProgress에서 읽을 수 있도록)
+            if self._crawler:
+                self._crawler.stats.set_value("dedup/loaded_ids", total_loaded)
+            
+            if total_loaded > 0:
+                logger.info(f"[{spider_name}] ✅ Supabase에서 {total_loaded}개의 중복 ID 로드 완료.")
             else:
-                if self._crawler:
-                    self._crawler.stats.set_value("dedup/loaded_ids", 0)
                 logger.info(f"[{spider_name}] DB가 비어있거나 초기 상태입니다.")
 
         except Exception as e:

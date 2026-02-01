@@ -4,10 +4,14 @@ Scrapy의 Twisted Reactor 대신 requests 라이브러리를 사용하여 다운
 """
 import asyncio
 import requests
+import urllib3
 import structlog
 from scrapy.http import HtmlResponse
 # from scrapy.downloadermiddlewares.retry import RetryMiddleware
 from scrapy.utils.python import to_bytes
+
+# SSL 인증서 검증 비활성화 시 경고 무시
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = structlog.get_logger(__name__)
 

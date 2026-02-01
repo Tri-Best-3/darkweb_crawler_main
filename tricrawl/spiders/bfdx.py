@@ -8,7 +8,7 @@ import hashlib
 import structlog
 import yaml
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from tricrawl.items import LeakItem
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +57,10 @@ class BfdxSpider(scrapy.Spider):
         except Exception as e:
             logger.error(f"Config load failed: {e}")
 
+        # 전역 설정 적용
+        global_conf = self.config.get('global', {})
+        self.days_limit = global_conf.get('days_to_crawl', 14)
+        
         # 스파이더별 설정 로드
         spider_conf = self.config.get('spiders', {}).get('bfdx', {})
         self.target_url = spider_conf.get('target_url')
@@ -65,6 +69,8 @@ class BfdxSpider(scrapy.Spider):
         
         # 기본값
         self.default_max_pages = int(spider_conf.get("default_max_pages", 5))
+        
+        logger.info(f"Loaded Config - Global Days: {self.days_limit}")
 
         if not self.target_url:
             logger.error("Target URL NOT found in config for bfdx.")
@@ -118,11 +124,25 @@ class BfdxSpider(scrapy.Spider):
         threads = response.css("div.structItem--thread")
         if threads:
             logger.info(f"Found {len(threads)} threads.")
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_limit)
+            
             for thread in threads:
                 title = thread.css("div.structItem-title a::text").get()
                 url = thread.css("div.structItem-title a::attr(href)").get()
                 author = thread.css("a.username::text").get() or "Unknown"
-                timestamp = thread.css("time.u-dt::attr(datetime)").get()
+                timestamp_str = thread.css("time.u-dt::attr(datetime)").get()
+                
+                # 날짜 파싱 및 cutoff 필터링
+                dt = None
+                if timestamp_str:
+                    try:
+                        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    except ValueError:
+                        pass
+                
+                if dt and dt < cutoff:
+                    logger.debug(f"Skipping old post: {title[:30] if title else 'N/A'} ({dt})")
+                    continue
                 
                 # Views Extraction
                 views_str = thread.css("div.structItem-cell--meta dl.structItem-minor dd::text").get()
@@ -139,6 +159,7 @@ class BfdxSpider(scrapy.Spider):
                 
                 if hasattr(self, 'seen_ids') and dedup_id in self.seen_ids:
                     logger.debug(f"Pre-skip: {title[:30]} (already in DB)")
+                    self.crawler.stats.inc_value('pre_dedup/skipped')
                     continue
 
                 yield scrapy.Request(
@@ -147,7 +168,7 @@ class BfdxSpider(scrapy.Spider):
                     meta={
                         "title": title.strip(),
                         "author": author,
-                        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+                        "timestamp": timestamp_str or datetime.now(timezone.utc).isoformat(),
                         "category": response.meta.get("category", "Main"),
                         "views": views,
                         "dedup_id": dedup_id,  # 상세 페이지에서 사용
