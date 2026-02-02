@@ -12,10 +12,10 @@ import argparse
 import re
 import shutil
 import time
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
-# .env 파일 로드 (환경변수 설정)
 load_dotenv()
 
 def _configure_utf8_output():
@@ -81,11 +81,9 @@ if HAS_RICH and not plain_mode:
 else:
     HAS_RICH = False
     console = None
-
 # Global State
 DISCORD_ENABLED = os.getenv("DISCORD_ENABLED", "true").lower() in ("true", "1", "yes")
 
-# 프로젝트 경로
 PROJECT_ROOT = Path(__file__).parent
 TRICRAWL_DIR = PROJECT_ROOT / "tricrawl"
 LOG_DIR = TRICRAWL_DIR / "logs"
@@ -121,19 +119,27 @@ def format_duration(seconds):
     return f"{m:02d}:{s:02d}"
 
 
-def _extract_stats_from_log(log_file):
+def _extract_stats_from_log(log_file, last_run_only=False):
     """
     Scrapy 로그 파일에서 주요 통계를 추출.
 
     - 로그가 dictionary 형태로 출력된 라인에서 숫자만 파싱
     - 없으면 빈 dict 반환
+    - last_run_only=True면 마지막 실행(Run: ...) 이후의 로그만 분석
     """
     try:
         text = log_file.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return {}
 
-    stats = {}
+    if last_run_only:
+        # 마지막 "Run:" 마커 이후만 자르기
+        # 마커 예시: "==================== Run: spider_name at ... ===================="
+        last_marker_idx = text.rfind("Run: ")
+        if last_marker_idx != -1:
+            # 마커가 있는 줄의 시작부터 자르지 않고, 그냥 마커 위치부터 끝까지 사용해도 통계 추출엔 문제 없음
+            text = text[last_marker_idx:]
+
     keys = [
         "item_scraped_count",
         "item_dropped_count",
@@ -143,6 +149,8 @@ def _extract_stats_from_log(log_file):
         "log_count/ERROR",
         "log_count/WARNING",
     ]
+    
+    stats = {}
     for key in keys:
         match = re.search(rf"'{re.escape(key)}':\s*(\d+)", text)
         if match:
@@ -152,26 +160,47 @@ def _extract_stats_from_log(log_file):
 
  
 def get_docker_status():
-    """Docker 컨테이너 상태 확인 (tricrawl 관련 컨테이너 우선)."""
-    # Docker 컨테이너 상태 확인
+    """Docker 컨테이너 상태 확인 (Superset, Tor, Worker, DB 등)."""
+    target_services = {
+        "tricrawl-tor": "Tor Proxy",
+        "superset-app": "Superset",
+        "superset-db": "Meta DB",
+        "superset-cache": "Redis"
+    }
+    
     try:
         result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}"],
-            capture_output=True, text=True, timeout=10
+            ["docker", "ps", "--format", "{{.Names}}:{{.Status}}"],
+            capture_output=True, text=True, timeout=5, encoding="utf-8"
         )
-        if result.returncode == 0 and result.stdout.strip():
-            containers = result.stdout.strip().split("\n")
-            # tricrawl 관련 컨테이너만 필터
-            tricrawl_containers = [c for c in containers if "tricrawl" in c.lower()]
-            return True, tricrawl_containers if tricrawl_containers else containers
-        return False, []
-    except:
-        return False, []
+        if result.returncode != 0:
+            return False, {}
+            
+        running_containers = {}
+        for line in result.stdout.splitlines():
+            if ":" in line:
+                name, status = line.split(":", 1)
+                running_containers[name] = status.strip()
+        
+        core_services = ["tricrawl-tor", "superset-app", "superset-db"]
+        all_up = all(s in running_containers for s in core_services)
+        
+        status_map = {}
+        for svc, label in target_services.items():
+            is_running = svc in running_containers
+            status_text = running_containers.get(svc, "Stopped")
+            if is_running:
+                if "Up" in status_text:
+                    status_text = "Running"
+            status_map[label] = status_text
+            
+        return all_up, status_map
+    except Exception:
+        return False, {}
 
 
 def get_tor_status():
     """Tor 프록시 연결 상태 확인 (SOCKS5 연결 테스트)."""
-    # Tor 프록시 연결 상태 확인
     host = os.getenv("TOR_PROXY_HOST", "127.0.0.1")
     port = int(os.getenv("TOR_PROXY_PORT", "9050"))
     
@@ -188,7 +217,6 @@ def get_tor_status():
 
 def get_available_spiders():
     """사용 가능한 스파이더 목록 가져오기 (Scrapy 로더 → subprocess fallback)."""
-    # 사용 가능한 스파이더 목록 가져오기(scrapy list)
     if HAS_SCRAPY:
         try:
             os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "tricrawl.settings")
@@ -216,17 +244,21 @@ def get_available_spiders():
 
 
 def get_webhook_status():
-    """Discord 웹훅 설정 상태 확인 (.env 기준)."""
-    # Discord 웹훅 설정 상태 확인
+    """Discord 웹훅 설정 상태 확인 (.env 및 활성화 여부)."""
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
-    if webhook_url and "discord.com/api/webhooks" in webhook_url:
-        return True, "설정됨"
-    return False, "미설정"
+    is_set = bool(webhook_url and "discord.com/api/webhooks" in webhook_url)
+    
+    if not is_set:
+        return False, "미설정"
+    
+    if DISCORD_ENABLED:
+        return True, "ON (설정됨)"
+    else:
+        return False, "OFF (중지됨)"
 
 
 def build_stage_panel(title, subtitle, icon_emoji, status_ok, status_text, action_hint):
     """Rich Panel 형태의 상태 박스를 생성."""
-    # Rich Panel로 스테이지 박스 생성
     status_icon = "[green]✅[/green]" if status_ok else "[red]❌[/red]"
     color = "green" if status_ok else "red"
     
@@ -246,7 +278,6 @@ def build_stage_panel(title, subtitle, icon_emoji, status_ok, status_text, actio
 
 def print_header():
     """콘솔 상단 헤더/타이틀 출력."""
-    # 헤더 출력
     clear_screen()
     if HAS_RICH:
         console.print()
@@ -261,28 +292,33 @@ def print_header():
 
 def print_guide():
     """사전 준비 및 빠른 시작 안내 패널 출력."""
-    # 가이드 패널 출력
     if not HAS_RICH:
         return
     
-    prereq = """[bold]Prerequisites[/bold]
-• Docker Desktop 실행 필요
-• .env 파일 설정 (Webhook)"""
+    prereq_content = (
+        "[bold]1. Docker Desktop[/bold]\n"
+        "   실행 상태여야 합니다.\n\n"
+        "[bold]2. .env 설정[/bold]\n"
+        "   [cyan].env.example[/cyan]을 복사해서\n"
+        "   [cyan].env[/cyan]를 만드세요."
+    )
 
-    quickstart = """[bold]Quick Start[/bold]
-1️  Docker Start
-2️  Crawl"""
+    quickstart_content = (
+        "[bold green]Step 1[/bold green]: [bold]System On (5)[/bold]\n"
+        "   인프라(DB, Tor)를 켭니다.\n\n"
+        "[bold green]Step 2[/bold green]: [bold]Action (1 or 2)[/bold]\n"
+        "   크롤링을 하거나 대시보드를 엽니다."
+    )
 
     console.print(Columns([
-        Panel(prereq, title="📋 사전 준비", border_style="dim", width=42),
-        Panel(quickstart, title="🚀 빠른 시작", border_style="dim", width=42)
+        Panel(prereq_content, title="📋 사전 체크 (Prerequisites)", border_style="dim", width=40),
+        Panel(quickstart_content, title="🚀 워크플로우 (Workflow)", border_style="blue", width=40)
     ], expand=False))
     console.print()
 
 
 def status():
     """Docker/Tor/Webhook의 전체 상태를 한 화면에 표시."""
-    # 전체 상태 확인
     print_header()
     
     if not HAS_RICH:
@@ -291,23 +327,59 @@ def status():
     
     print_guide()
     
-    # Stage 1: Docker < 도커 데스크톱 실행되어 있는지 확인하는 코멘트 추후 필요
-    docker_ok, containers = get_docker_status()
-    docker_text = f"{len(containers)} running" if docker_ok else "Stopped"
-    panel1 = build_stage_panel("DOCKER", "System", "🐳", docker_ok, docker_text, "Start Docker first")
-    
-    # Stage 2: Tor Proxy
+    docker_ok, status_map = get_docker_status()
     tor_ok, tor_addr = get_tor_status()
-    tor_text = "Connected" if tor_ok else "Disconnected"
-    tor_hint = "Check Docker" if not docker_ok else f"Check {tor_addr}"
-    panel2 = build_stage_panel("TOR", "Network", "🧅", tor_ok, tor_text, tor_hint)
-    
-    # Stage 3: Webhook
     webhook_ok, webhook_text = get_webhook_status()
-    panel3 = build_stage_panel("WEBHOOK", "Alert", "🔔", webhook_ok, webhook_text, ".env Check")
+
+    grid = Table.grid(padding=(1, 2))
+    grid.add_column("Section", justify="center")
+    grid.add_column("Content")
+
+    # 1. Docker Cluster Status
+    docker_table = Table(box=None, show_header=False, padding=(0, 1))
+    docker_table.add_column("Service")
+    docker_table.add_column("Status")
     
-    # 가로로 출력
-    console.print(Columns([panel1, panel2, panel3], equal=True, expand=False))
+    if status_map:
+        for label, state in status_map.items():
+            icon = "🟢" if state == "Running" else "⚪"
+            style = "bold green" if state == "Running" else "dim"
+            docker_table.add_row(label, f"[{style}]{icon} {state}[/{style}]")
+    else:
+        docker_table.add_row("Docker", "[red]❌ Stopped[/red]")
+
+    docker_panel = Panel(
+        docker_table,
+        title="[bold]🐳 Infrastructure[/bold]",
+        border_style="green" if docker_ok else "red",
+        width=35
+    )
+
+    # 2. Network & Alert Status
+    net_table = Table(box=None, show_header=False, padding=(0, 1))
+    net_table.add_column("Label")
+    net_table.add_column("Value")
+    
+    # Tor
+    tor_icon = "🟢" if tor_ok else "🔴"
+    tor_status = f"[bold green]Connected[/bold green]" if tor_ok else "[red]Disconnected[/red]"
+    net_table.add_row(f"{tor_icon} Tor Proxy", tor_status)
+    
+    # Webhook
+    web_icon = "🔔" if webhook_ok else "🔕"
+    web_status = f"[green]{webhook_text}[/green]" if webhook_ok else f"[yellow]{webhook_text}[/yellow]"
+    net_table.add_row(f"{web_icon} Webhook", web_status)
+
+    net_panel = Panel(
+        net_table,
+        title="[bold]🌐 Network & Alert[/bold]",
+        border_style="blue",
+        width=35
+    )
+
+    # 배치
+    console.print(Columns([docker_panel, net_panel], expand=False))
+    console.print()
 
 
 def check_docker_daemon():
@@ -326,10 +398,379 @@ def check_docker_daemon():
         return False
 
 
+def run_all_spiders(confirm_promt=True, log_file=None):
+    """등록된 모든 스파이더를 순차적으로 실행."""
+    spiders = get_available_spiders()
+    if not spiders:
+        print("❌ 실행할 스파이더가 없습니다.")
+        return
+
+    print("\n" + "="*60)
+    print(f"📢  [NOTICE] 전체 스파이더 실행 ({len(spiders)}개)")
+    print("    예상 소요 시간: 매우 오래 걸릴 수 있습니다.")
+    print("    중단하려면 Ctrl+C를, 강제 종료하려면 터미널을 닫으세요.")
+    print("="*60 + "\n")
+    
+    if confirm_promt:
+        confirm = input("정말 진행하시겠습니까? (y/N): ").lower()
+        if confirm != 'y':
+            print("취소되었습니다.")
+            return
+
+    total_start = time.time()
+    
+    # log_file이 있으면 append_log=True
+    do_append = bool(log_file)
+    
+    for idx, spider in enumerate(spiders, 1):
+        if HAS_RICH:
+            console.rule(f"[bold magenta]({idx}/{len(spiders)}) Running Spider: {spider}[/bold magenta]")
+        else:
+            print(f"\n>>> ({idx}/{len(spiders)}) Running Spider: {spider} <<<\n")
+        
+        run_crawler(spider, log_file=log_file, append_log=do_append)
+        time.sleep(2) # 쿨다운
+
+    total_elapsed = format_duration(time.time() - total_start)
+    print("\n" + "="*60)
+    print(f"✅  모든 배치 작업 완료! (총 소요 시간: {total_elapsed})")
+    print("="*60 + "\n")
+
+
+def monitoring_menu():
+    """2. 모니터링 모드 (구 스케줄러)"""
+    config_path = PROJECT_ROOT / "config" / "scheduler_state.json"
+    
+    def load_config():
+        default = {
+            "interval_hours": 1, 
+            "target": "ALL", 
+            "ref_start_time": None, # "YYYY-MM-DD HH:MM"
+            "cycle_count": 0
+        }
+        if not config_path.exists():
+            return default
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return default
+
+    def save_config(conf):
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(conf, f, indent=2)
+        except Exception as e:
+            print(f"❌ Config Save Error: {e}")
+
+    config = load_config()
+    
+    # 기본값 보정
+    if "interval_hours" not in config: config["interval_hours"] = 1
+    if "target" not in config: config["target"] = "ALL"
+    if "ref_start_time" not in config: config["ref_start_time"] = None
+    
+    # 오늘 오전 10시를 기본 기준시간으로 제안
+    today_10am = time.strftime("%Y-%m-%d 10:00")
+
+    while True:
+        clear_screen()
+        
+        curr_interval = config["interval_hours"]
+        curr_target = config["target"]
+        curr_ref = config["ref_start_time"] if config.get("ref_start_time") else "Not Set (Start Now)"
+        
+        if HAS_RICH:
+            # Main Menu와 유사한 Layout 적용 (Grid + Table)
+            grid = Table.grid(padding=(0, 2))
+            grid.add_column(justify="left")
+            
+            # 상단: 현재 설정 상태 (Panel로 감싸서 강조)
+            config_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+            config_table.add_column("Key", style="bold cyan", justify="right")
+            config_table.add_column("Value", style="yellow")
+            
+            config_table.add_row("Target (타겟)", f"{curr_target}")
+            config_table.add_row("Interval (주기)", f"{curr_interval} Hours")
+            config_table.add_row("Start At (기준)", f"{curr_ref}")
+            
+            config_panel = Panel(
+                config_table,
+                title="📡 Current Configuration",
+                border_style="cyan",
+                width=60,
+                subtitle=f"[dim]Every {curr_interval}h starting from {curr_ref.split(' ')[-1] if ' ' in curr_ref else 'Now'}[/dim]"
+            )
+
+            # 하단: 메뉴 옵션 (Table)
+            menu_table = Table(box=box.SIMPLE, show_header=True, header_style="bold magenta", width=60)
+            menu_table.add_column("🔢 Option", justify="center", width=10)
+            menu_table.add_column("📝 Description", justify="left")
+            
+            menu_table.add_row("[bold]1[/bold]", "🎯 Set Target [dim](Spider)[/dim]")
+            menu_table.add_row("[bold]2[/bold]", "⏰ Set Interval [dim](1h/2h/4h...)[/dim]")
+            menu_table.add_row("[bold]3[/bold]", "🚀 Set Reference Time [dim](Future Start)[/dim]")
+            menu_table.add_row("", "") # Spacer
+            menu_table.add_row("[bold cyan]4[/bold cyan]", "[bold cyan]🚀 Start Monitoring Loop[/bold cyan]")
+            menu_table.add_row("[bold]0[/bold]", "🔙 Back to Main Menu")
+
+            # 출력
+            console.print(config_panel)
+            console.print(menu_table)
+            console.print()
+
+        else:
+            print("\n📡 모니터링 설정 (Monitoring Config)")
+            print(f"  Target  : {curr_target}")
+            print(f"  Interval: {curr_interval} Hours")
+            print(f"  Start At: {curr_ref}")
+            
+            print("\n[설정 옵션]")
+            print("  1. 🎯 타겟 설정 (Target)")
+            print("  2. ⏰ 주기 설정 (Interval)")
+            print("  3. 🚀 기준 시작 시간 (Start Time)")
+            print("  4. 🚀 모니터링 시작 (Start Loop)")
+            print("  0. 뒤로 가기 (Back)")
+
+        choice = input("Select Option > ").strip()
+
+        if choice == '0':
+            break
+            
+        elif choice == '1':
+            spiders = get_available_spiders()
+            
+            if HAS_RICH:
+                table = Table(title="🎯 Available Spiders", box=box.SIMPLE)
+                table.add_column("No.", style="cyan", justify="right")
+                table.add_column("Spider Name", style="bold white")
+                
+                table.add_row("a", "ALL (Default)")
+                for idx, s in enumerate(spiders, 1):
+                    table.add_row(str(idx), s)
+                
+                console.print(table)
+            else:
+                print("\n[타겟 선택]")
+                print("  a. 전체 (ALL) - 기본값")
+                for idx, s in enumerate(spiders, 1):
+                    print(f"  {idx}. {s}")
+            
+            sel = input("Select Target (No./a): ").strip().lower()
+            if sel == 'a':
+                config["target"] = "ALL"
+            elif sel.isdigit() and 1 <= int(sel) <= len(spiders):
+                config["target"] = spiders[int(sel)-1]
+            else:
+                config["target"] = "ALL"
+            save_config(config)
+
+        elif choice == '2':
+            options = [1, 2, 4, 8, 24]
+            
+            if HAS_RICH:
+                table = Table(title="⏰ Select Interval", box=box.SIMPLE)
+                table.add_column("No.", style="cyan", justify="right")
+                table.add_column("Interval", style="bold yellow")
+                
+                for i, opt in enumerate(options, 1):
+                    table.add_row(str(i), f"{opt} Hour(s)")
+                console.print(table)
+            else:
+                print("\n[주기 선택 (시간 단위)]")
+                for i, opt in enumerate(options, 1):
+                    print(f"  {i}. {opt}시간")
+            
+            sel = input("Select Interval (No.): ").strip()
+            if sel.isdigit() and 1 <= int(sel) <= len(options):
+                config["interval_hours"] = options[int(sel)-1]
+                save_config(config)
+            else:
+                print("❌ Invalid Selection")
+                time.sleep(1)
+
+        elif choice == '3':
+            print(f"\nExample: {today_10am}")
+            inp = input("Enter Start Time (YYYY-MM-DD HH:MM) [Enter to skip]: ").strip()
+            if inp:
+                try:
+                    time.strptime(inp, "%Y-%m-%d %H:%M")
+                    config["ref_start_time"] = inp
+                    save_config(config)
+                except ValueError:
+                    print("❌ Invalid Format.")
+                    time.sleep(1)
+            else:
+                config["ref_start_time"] = None
+                save_config(config)
+
+        elif choice == '4':
+            run_monitoring_loop(config)
+            config = load_config()
+
+def run_monitoring_loop(config):
+    """실제 모니터링 루프 실행 (Dashboard UI)."""
+    import datetime
+    
+    interval_hours = config["interval_hours"]
+    target = config["target"]
+    ref_time_str = config.get("ref_start_time")
+    
+    clear_screen()
+    
+    if HAS_RICH:
+        console.print("[bold green]🚀 Initializing...[/bold green]")
+    else:
+        print("🚀 Initializing...")
+
+    # 기준 시간 파싱 및 다음 실행 시간 계산
+    now = datetime.datetime.now()
+    
+    if ref_time_str:
+        ref_time = datetime.datetime.strptime(ref_time_str, "%Y-%m-%d %H:%M")
+    else:
+        ref_time = now 
+    
+    next_run = ref_time
+    while next_run <= now:
+        next_run += datetime.timedelta(hours=interval_hours)
+    
+    cycle_count = config.get("cycle_count", 0)
+
+    try:
+        from rich.live import Live
+        from rich.layout import Layout
+        from rich.align import Align
+        from rich.text import Text
+        
+        # 메인 루프 (Live Dashboard)
+        with Live(refresh_per_second=1, screen=True) as live: 
+            # screen=True로 해서 전체 화면 모드 (깔끔함) -> 사용자 요청 반영 ("꽉 차보이는거 싫음"이면 False가 나을수도 있으나 screen=True가 몰입감은 좋음)
+            # 사용자가 "너무 넓다"고 했으니 screen=False 유지하되 Align.center 사용
+            pass
+        
+        # Live를 다시 구성 (screen=False)
+        with Live(refresh_per_second=1) as live:
+            while True:
+                now = datetime.datetime.now()
+                
+                today_str = datetime.date.today().strftime("%Y-%m-%d")
+                log_filename = f"monitoring_{today_str}.log"
+                host_log_display = f"tricrawl/logs/{log_filename}"
+                
+                # 남은 시간 계산
+                if now >= next_run:
+                    wait_str = "🚀 Launching..."
+                    status_color = "red"
+                else:
+                    diff = next_run - now
+                    total_seconds = int(diff.total_seconds())
+                    hours, remainder = divmod(total_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    wait_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    status_color = "green"
+
+                if HAS_RICH:
+                    # Dashboard Layout (Centered, Fixed Width)
+                    
+                    # 1. Info Table
+                    info_table = Table(box=box.SIMPLE, show_header=False, padding=(0,1), width=50)
+                    info_table.add_column("Label", justify="right", style="cyan")
+                    info_table.add_column("Value", justify="left", style="white")
+                    
+                    info_table.add_row("Target:", f"[yellow]{target}[/yellow]")
+                    info_table.add_row("Interval:", f"{interval_hours} Hours")
+                    info_table.add_row("Cycles:", f"{cycle_count}")
+                    info_table.add_row("Log File:", f"[dim]{host_log_display}[/dim]")
+
+                    # 2. Main Countdown (Progress Bar + Big Text)
+                    # 전체 주기(초) 계산
+                    interval_seconds = interval_hours * 3600
+                    # 남은 시간(초) -> Wait Str은 위에서 계산됨
+                    
+                    # 진행률 (시간이 흐를수록 참 -> 100% 도달 시 실행)
+                    completed = interval_seconds - diff.total_seconds()
+                    
+                    # Rich Progress Bar Configuration
+                    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+                    
+                    # 수동으로 Progress Bar 렌더링 (Live 내부에서)
+                    # 여기서는 간단히 Text Bar와 Big Font 효과를 흉내냄
+                    
+                    # Big Counter Text
+                    counter_panel_content = Text(wait_str, style=f"bold {status_color}" if status_color == "green" else "bold red blink", justify="center")
+                    # 폰트 사이즈 키우는건 터미널 지원 한계가 있으므로, 별와 공백으로 강조
+                    
+                    if status_color == "green":
+                         pass
+                    else:
+                         pass
+
+                    # Panel Composition
+                    dashboard_grid = Table.grid(padding=1)
+                    dashboard_grid.add_column(justify="center")
+                    
+                    # 카운트다운 패널 (크게)
+                    dashboard_grid.add_row(Panel(
+                        Align.center(
+                             Text.assemble(
+                                 (f"\n{wait_str}\n", f"bold {status_color}"),
+                                 justify="center"
+                             )
+                        ),
+                        title="⏳ Next Run Countdown", 
+                        border_style=status_color, 
+                        width=54, 
+                        padding=(0,2)
+                    ))
+                    
+                    dashboard_grid.add_row(Panel(info_table, title="📊 Status", border_style="cyan", width=54))
+                    
+                    # Final Output
+                    live.update(
+                        Panel(dashboard_grid, title="📡 Monitoring Dashboard", border_style="bold green", subtitle="[dim]Press Ctrl+C to stop[/dim]", padding=(1,2), width=60)
+                    )
+                else:
+                    pass
+
+                # 실행 시점 체크
+                if now >= next_run:
+                    if HAS_RICH: live.stop()
+                    
+                    print(f"\n\n[{now.strftime('%H:%M:%S')}] 🚀 Running Scheduler Job (Cycle: {cycle_count + 1})")
+                    log_file_path = LOG_DIR / log_filename
+                    
+                    if target == "ALL":
+                        run_all_spiders(confirm_promt=False, log_file=log_file_path)
+                    else:
+                        run_crawler(target, log_file=log_file_path, append_log=True)
+                    
+                    cycle_count += 1
+                    config["cycle_count"] = cycle_count
+                    
+                    next_run += datetime.timedelta(hours=interval_hours)
+                    while next_run <= datetime.datetime.now():
+                         next_run += datetime.timedelta(hours=interval_hours)
+                    
+
+                    
+                    print(f"✅ Finished. Next: {next_run.strftime('%H:%M:%S')}")
+                    time.sleep(3) 
+                    
+                    clear_screen()
+                    if HAS_RICH: live.start()
+
+                time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("\n\n🛑 모니터링이 사용자에 의해 중단되었습니다.")
+        time.sleep(1)
+    except Exception as e:
+        print(f"\n❌ 모니터링 중 치명적 오류 발생: {e}")
+        input("엔터를 눌러 복귀...")
+
 def start_docker():
     """Docker 컨테이너 시작 + Tor 연결 대기."""
-    # Docker 시작 및 Tor 연결 대기
-    # Docker Daemon 확인
     if not check_docker_daemon():
         if HAS_RICH:
             console.print(Panel(
@@ -348,12 +789,13 @@ def start_docker():
     # Rich Status Spinner로 실행 및 대기
     if HAS_RICH:
         with console.status("[bold green]🐳 Docker 컨테이너를 시작하고 있습니다...[/bold green]") as status:
-            # Docker Up
             try:
                 result = subprocess.run(
                     ["docker-compose", "up", "-d"],
                     cwd=str(PROJECT_ROOT),
-                    capture_output=True, text=True
+                    capture_output=True, text=True,
+                    encoding="utf-8",
+                    errors="replace"
                 )
 
                 # Conflict 발생 시 자동 복구 시도
@@ -361,13 +803,13 @@ def start_docker():
                     if status:
                         status.update("[bold yellow]⚠️ 좀비 컨테이너 발견! 강제 정리 중...[/bold yellow]")
                     
-                    # 1. 명시적 강제 삭제 (가장 확실함)
                     subprocess.run(
                         ["docker", "rm", "-f", "tricrawl-tor"],
-                        capture_output=True, text=True
+                        capture_output=True, text=True,
+                        encoding="utf-8",
+                        errors="replace"
                     )
                     
-                    # 2. Compose Down도 같이 실행 (네트워크 정리 등)
                     subprocess.run(
                         ["docker-compose", "down"],
                         cwd=str(PROJECT_ROOT),
@@ -376,7 +818,6 @@ def start_docker():
                     
                     time.sleep(2)
                     
-                    # 3. 재시도
                     result = subprocess.run(
                         ["docker-compose", "up", "-d"],
                         cwd=str(PROJECT_ROOT),
@@ -418,13 +859,14 @@ def start_docker():
 
 def stop_docker():
     """Docker 컨테이너 종료."""
-    # Docker 종료
     print("\n🐳 Stopping Docker containers...")
     try:
         result = subprocess.run(
             ["docker-compose", "down"],
             cwd=str(PROJECT_ROOT),
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            encoding="utf-8",
+            errors="replace"
         )
         if result.returncode == 0:
             print("✅ Docker containers stopped")
@@ -436,7 +878,6 @@ def stop_docker():
 
 def view_logs(lines=20):
     """로그 파일을 OS 기본 프로그램으로 연다."""
-    # 로그 파일 열기, 터미널 출력 방식에서 외부 프로그램 작동 방식으로(기본 프로그렘으로, 난 메모장)
     log_file = LOG_DIR / "last_run.log"
     if not log_file.exists():
         print("\n로그 파일이 없습니다. 먼저 크롤러를 실행하세요.")
@@ -454,81 +895,119 @@ def view_logs(lines=20):
         print(f"로그 파일 열기 실패: {e}")
 
 
-def run_crawler(spider="test", limit=None):
+def run_crawler(spider="test", limit=None, log_file=None, append_log=False):
     """
     Scrapy 크롤러 실행 래퍼.
-
-    - config/crawler_config.yaml에서 days_to_crawl을 로드
-    - 실행 로그는 tricrawl/logs/last_run.log에 저장
-    - 스파이더는 LeakItem 데이터 컨트랙트를 지켜야 함
+    
+    Args:
+        spider (str): 스파이더 이름
+        limit (int): (Deprecated)
+        log_file (Path, optional): 로그 파일 경로. None이면 last_run.log 사용.
+        append_log (bool): True면 로그 파일을 초기화하지 않고 이어씀.
     """
-    # 크롤러 실행
-    log_file = LOG_DIR / "last_run.log"
-    # 스파이더별 표시 이름
-    display_name = {
-        "test": "Test Integration (Mockup Crawl + Webhook)",
-        "darknet_army": "DarkNetArmy (Dark Web Forum)",
-        "abyss": "Abyss (Ransomware Site)",
-    }
+    # 기본 로그 파일 설정
+    if not log_file:
+        log_file = LOG_DIR / "last_run.log"
+    log_file = Path(log_file)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # 설정 파일 로드
+    # config 로드 (days_limit 등)
     config_path = PROJECT_ROOT / "config" / "crawler_config.yaml"
     days_limit = 3
+    timeout = 60
+    retries = 2
 
     if config_path.exists():
         import yaml
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 conf = yaml.safe_load(f) or {}
-                # 전역 설정만 로드(스파이더별 설정은 스파이더가 직접 로드)
-                days_limit = conf.get("global", {}).get("days_to_crawl", 3)
+                # Global Config
+                global_conf = conf.get("global", {})
+                days_limit = global_conf.get("days_to_crawl", 3)
+                default_timeout = global_conf.get("timeout_seconds", 60)
+                default_retries = global_conf.get("max_retries", 2)
+                
+                # Spider Specific Config
+                spider_conf = conf.get("spiders", {}).get(spider, {})
+                timeout = spider_conf.get("timeout_seconds", default_timeout)
+                retries = spider_conf.get("max_retries", default_retries)
+
         except Exception as e:
             print(f"??  Config Load Error: {e}")
-    else:
-        print("??  Config file not found. Using defaults.")
 
-    # 시작 정보는 Rich Progress Panel에서 출력함 (중복 제거)
-    print()  # 빈 줄
+    # 시작 정보 출력
+    print()  
 
     if shutil.which("scrapy") is None:
-        print("scrapy 명령을 찾을 수 없습니다. venv를 활성화하세요.")
-        return
-
+        pass 
+    
     start_time = time.time()
     original_cwd = Path.cwd()
-    os.chdir(TRICRAWL_DIR)
+    os.chdir(TRICRAWL_DIR) 
+    
     try:
-        os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "tricrawl.settings")
+        # 1. 로그 파일 초기화 (append_log=False일 때만)
+        if not append_log:
+            try:
+                log_file.write_text("", encoding="utf-8")
+            except Exception:
+                pass
+        else:
+            # 이어쓰기 모드: 구분선 추가
+            try:
+                with open(log_file, "a", encoding="utf-8") as f:
+                    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                    f.write(f"\n{'='*20} Run: {spider} at {ts} {'='*20}\n")
+            except Exception:
+                pass
+
+
+        # 2. Docker Command 구성 (docker-compose run)
+        # 컨테이너 내부 경로로 변환 (tricrawl/logs/... -> /app/tricrawl/logs/...)
         try:
-            log_file.write_text("", encoding="utf-8")
-        except Exception:
-            pass
+            rel_path = log_file.relative_to(PROJECT_ROOT)
+            docker_log_path = f"/app/{rel_path.as_posix()}"
+        except ValueError:
+            docker_log_path = "/app/tricrawl/logs/last_run.log"
 
         cmd = [
-            sys.executable,
-            "-m",
-            "scrapy",
-            "crawl",
+            "docker-compose", 
+            "run", 
+            "--rm",
+            "crawler", 
+            "scrapy", 
+            "crawl", 
             spider,
-            "-a",
-            f"days_limit={days_limit}",
+            "-a", f"days_limit={days_limit}",
+            "-s", f"DOWNLOAD_TIMEOUT={timeout}",
+            "-s", f"RETRY_TIMES={retries}"
         ]
-
-        # LOG_FILE 인자 제거 (settings.py에서 처리)
-        # cmd.extend(["-s", f"LOG_FILE={log_file}"])
-
+        
         if not DISCORD_ENABLED:
             cmd.extend(["-s", "DISCORD_WEBHOOK_URL="])
+            
+        # 환경변수 전달
+        env_args = [
+            "-e", f"TRICRAWL_LOG_FILE={docker_log_path}",
+            "-e", "TERM=xterm-256color",
+            "-e", "PYTHONIOENCODING=utf-8"
+        ]
+        
+        final_cmd = cmd[:3] + env_args + cmd[3:]
 
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        env.setdefault("PYTHONUTF8", "1")
-        env["TRICRAWL_LOG_FILE"] = str(log_file) # settings.py로 전달
-        pythonpath = str(PROJECT_ROOT)
-        if env.get("PYTHONPATH"):
-            pythonpath = f"{pythonpath}{os.pathsep}{env['PYTHONPATH']}"
-        env["PYTHONPATH"] = pythonpath
-        env.setdefault("SCRAPY_SETTINGS_MODULE", "tricrawl.settings")
-        result = subprocess.run(cmd, cwd=str(TRICRAWL_DIR), env=env)
+        if HAS_RICH and not append_log: 
+             console.print(f"[dim]Command: {' '.join(final_cmd)}[/dim]")
+              
+        if HAS_RICH:
+            # 타임아웃/재시도 정보 표시 (디버깅용)
+            console.print(f"[bold cyan]🚀 Spider '{spider}' 실행 중...[/bold cyan] [dim](Timeout: {timeout}s, Retries: {retries})[/dim]")
+            
+        result = subprocess.run(
+            final_cmd, 
+            cwd=str(PROJECT_ROOT)
+        )
+            
         exit_code = result.returncode
 
         print()
@@ -536,35 +1015,26 @@ def run_crawler(spider="test", limit=None):
         summary_lines = []
         summary_lines.append("=" * 60)
         if exit_code == 0:
-            summary_lines.append("크롤링 완료")
+            summary_lines.append(f"크롤링 완료: {spider}")
         else:
             summary_lines.append(f"크롤링 종료 (코드: {exit_code})")
         summary_lines.append(f"소요 시간: {elapsed}")
+        
+        # 3. 로그 분석
+        stats = _extract_stats_from_log(log_file, last_run_only=append_log) 
 
-        stats = _extract_stats_from_log(log_file)
         if stats:
             if "item_scraped_count" in stats:
                 summary_lines.append(f"수집: {stats['item_scraped_count']}")
             if "item_dropped_count" in stats:
                 summary_lines.append(f"필터/중복 제외: {stats['item_dropped_count']}")
-            if "discord_notify/sent" in stats:
-                summary_lines.append(f"알림 전송: {stats['discord_notify/sent']}")
-            if "downloader/request_count" in stats:
-                summary_lines.append(f"요청: {stats['downloader/request_count']}")
-            if "downloader/response_count" in stats:
-                summary_lines.append(f"응답: {stats['downloader/response_count']}")
-            if "log_count/ERROR" in stats or "log_count/WARNING" in stats:
-                errors = stats.get("log_count/ERROR", 0)
-                warnings = stats.get("log_count/WARNING", 0)
-                summary_lines.append(f"에러/경고: {errors}/{warnings}")
-        summary_lines.append(f"로그 파일: {log_file}")
+            if "log_count/ERROR" in stats:
+                 summary_lines.append(f"에러: {stats['log_count/ERROR']}")
+
+        summary_lines.append(f"로그 파일: {log_file.name}")
         summary_lines.append("=" * 60)
 
-        # 콘솔 출력 제거 - Rich Progress Panel이 담당
-        # for line in summary_lines:
-        #     print(line)
-
-        # 로그 파일에만 기록
+        # 로그 파일에 요약 추가
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write("\n")
@@ -572,12 +1042,11 @@ def run_crawler(spider="test", limit=None):
                     f.write(f"{line}\n")
         except Exception:
             pass
+            
     except KeyboardInterrupt:
-        print()
-        print("중단됨")
+        print("\n중단됨")
     except Exception as e:
-        print()
-        print(f"실행 오류: {e}")
+        print(f"\n실행 오류: {e}")
     finally:
         os.chdir(original_cwd)
 
@@ -592,29 +1061,43 @@ def print_menu():
     """메인 메뉴 출력 (Rich/Plain 모드 자동 선택)."""
     # 메뉴 출력
     if HAS_RICH:
-        table = Table(show_header=False, box=box.ROUNDED, border_style="blue")
-        table.add_column("Command", style="cyan")
-        table.add_column("Description")
-        table.add_column("Command", style="cyan") # 오른쪽
-        table.add_column("Description")
+        # 메인 레이아웃 테이블
+        grid = Table.grid(padding=(0, 4))
+        grid.add_column("Left", justify="left")
+        grid.add_column("Right", justify="left")
 
-        table.add_row("1", "🐳 Start Docker", "4", "📄 View Logs")
-        table.add_row("2", "🛑 Stop Docker", "5", f"🔔 Toggle Discord ({'ON' if DISCORD_ENABLED else 'OFF'})")
-        table.add_row("3", "🌑 Start Crawl", "6", "💾 Export DB to JSONL")
+        # 왼쪽: 핵심 작업 (Core Actions)
+        table_left = Table(box=box.SIMPLE, show_header=True, header_style="bold magenta")
+        table_left.add_column("🚀 Core Actions")
 
-        mode = os.getenv("TRICRAWL_SUPERSET_MODE", "cloud").lower()
-        table.add_row("", "", "7", f"🔬 Open Dashboard ({mode.upper()})")
-        table.add_row("", "", "q", "👋 Quit")
+        table_left.add_row("[bold magenta]1[/bold magenta]. 🌑 Start Crawl [dim](Run Worker)[/dim]")
+        table_left.add_row("[bold magenta]2[/bold magenta]. 📡 Monitoring Mode [dim](Auto Schedule)[/dim]")
+        table_left.add_row("[bold magenta]3[/bold magenta]. 🔬 Open Dashboard [dim](Superset)[/dim]")
+        table_left.add_row("[bold magenta]4[/bold magenta]. 📄 View Logs [dim](Notepad)[/dim]")
 
-        console.print(table)
+        # 오른쪽: 시스템 관리 (System & Tools)
+        table_right = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
+        table_right.add_column("🛠️ System & Tools")
+
+        table_right.add_row("[bold cyan]5[/bold cyan]. 🐳 Start Docker [dim](System Up)[/dim]")
+        table_right.add_row("[bold cyan]6[/bold cyan]. 🛑 Stop Docker [dim](System Down)[/dim]")
+        table_right.add_row("[bold cyan]7[/bold cyan]. 💾 Export DB [dim](JSONL/CSV)[/dim]")
+        table_right.add_row(f"[bold cyan]8[/bold cyan]. 🔔 Toggle Discord [dim]({'ON' if DISCORD_ENABLED else 'OFF'})[/dim]")
+
+        # Grid에 추가
+        grid.add_row(table_left, table_right)
+        
+        # 하단 종료 메뉴
+        console.print(grid)
+        console.print("\n[dim]Press [bold]q[/bold] to Quit[/dim]")
         console.print()
     else:
         print("╭────┬────────────────────────────────┬────┬────────────────────────────────╮")
-        print("│ 1  │ 🐳 Start Docker                │ 4  │ 📄 View Logs                   │")
-        print("│ 2  │ 🛑 Stop Docker                 │ 5  │ 🔔 Toggle Discord              │")
-        print("│ 3  │ 🌑 Start Crawl                 │ 6  │ 💾 Export DB to JSONL          │")
-        print("│    │                                │ 7  │ 🔬 Open Dashboard              │")
-        print("│                                     │ q  │ 👋 Quit                        │")
+        print("│ 1  │ 🌑 Start Crawl                 │ 5  │ 🐳 Start Docker                │")
+        print("│ 2  │ 📡 Monitoring Mode             │ 6  │ 🛑 Stop Docker                 │")
+        print("│ 3  │ 🔬 Open Dashboard              │ 7  │ 💾 Export DB                   │")
+        print("│ 4  │ 📄 View Logs                   │ 8  │ 🔔 Toggle Discord              │")
+        print("│ q  │ 👋 Quit                        │    │                                │")
         print("╰────┴────────────────────────────────┴────┴────────────────────────────────╯")
 
 
@@ -638,14 +1121,6 @@ def interactive_mode():
             continue
         
         elif cmd == '1':
-            start_docker()
-            input("\n  [Enter] Continue...")
-            
-        elif cmd == '2':
-            stop_docker()
-            input("\n  [Enter] Continue...")
-            
-        elif cmd == '3':
             # Dark Web Crawl
             tor_ok, _ = get_tor_status()
             if not tor_ok:
@@ -659,7 +1134,6 @@ def interactive_mode():
             
             print("\n⚠️  [CAUTION] Starting Dark Web Crawling...")
             
-            # 스파이더 목록 조회 및 선택
             spiders = get_available_spiders()
             
             if not spiders:
@@ -675,6 +1149,7 @@ def interactive_mode():
                 for idx, s in enumerate(spiders, 1):
                     spider_table.add_row(str(idx), s)
                 
+                spider_table.add_row("a", "[bold yellow]Run All Spiders (All)[/bold yellow]")
                 # Cancel row (Styled)
                 spider_table.add_row("0", "[dim]Cancel (Return to Menu)[/dim]")
                 
@@ -684,21 +1159,24 @@ def interactive_mode():
                 print("\n🕷️  Available Spiders:")
                 for idx, s in enumerate(spiders, 1):
                     print(f"  [{idx}] {s}")
+                print(f"  [a] Run All Spiders")
                 print(f"  [0] Cancel")
 
             selected_spider = None
             while True:
                 choice = input("\n  Select Spider (Index or Name): ").strip()
                 if choice == '0':
-                    selected_spider = None # Explicitly set None
+                    selected_spider = None
                     break
                 
-                # 인덱스 선택
+                if choice.lower() == 'a':
+                    selected_spider = "ALL"
+                    break
+
                 if choice.isdigit() and 1 <= int(choice) <= len(spiders):
                     selected_spider = spiders[int(choice)-1]
                     break
                 
-                # 이름 직접 입력
                 if choice in spiders:
                     selected_spider = choice
                     break
@@ -706,21 +1184,64 @@ def interactive_mode():
                 print("❌ Invalid selection.")
 
             if selected_spider:
-                # 설정에 따라 자동 실행(prompt 제거)
-                run_crawler(selected_spider)
+                if selected_spider == "ALL":
+                    run_all_spiders()
+                else:
+                    run_crawler(selected_spider)
                 input("\n  [Enter] Continue...")
-            
-            # 0번(Cancel) 선택 시 루프 밖으로 나감(바로 메인 메뉴로)
+        
+        elif cmd == '2':
+            # Monitoring Mode (New)
+            monitoring_menu()
 
-            
-        elif cmd == '4':
-            view_logs(50)
+        elif cmd == '3':
+            # Open Dashboard (Moved from 2)
+            try:
+                client = SupersetDashboardMiddleware()
+                url = client.get_url()
+                print(f"\n🔬 Superset Dashboard: {url}")
+                ok = client.open_dashboard()
+                if not ok:
+                    print("❌ 자동으로 브라우저를 열지 못했습니다. 위 URL을 직접 여세요.")
+            except (ValueError, NameError) as e:
+                print(f"❌ 오류: {e}")
+                print("Superset 미들웨어 초기화 실패. .env 설정을 확인하세요.")
             input("\n  [Enter] Continue...")
 
+        elif cmd == '4':
+            # View Logs (Moved from 3)
+            view_logs()
+
         elif cmd == '5':
+            # Start Docker
+            start_docker()
+            input("\n  [Enter] Continue...")
+
+        elif cmd == '6':
+            # Stop Docker
+            stop_docker()
+            input("\n  [Enter] Continue...")
+
+        elif cmd == '7':
+             # Export DB (Moved from 4)
+            if exporter:
+                print("\n💾 Exporting data from Supabase...")
+                try:
+                    jsonl_path = exporter.export_to_jsonl()
+                    if jsonl_path:
+                        exporter.convert_to_csv(jsonl_path)
+                    print("✅ Export completed (check 'tricrawl/data').")
+                except Exception as e:
+                    print(f"❌ Export failed: {e}")
+            else:
+                print("\n❌ Exporter module not loaded.")
+            input("\n  [Enter] Continue...")
+            
+        elif cmd == '8':
+            # Toggle Discord
+            global DISCORD_ENABLED
             DISCORD_ENABLED = not DISCORD_ENABLED
             
-            # .env 파일 업데이트 (상태 저장)
             try:
                 env_path = PROJECT_ROOT / ".env"
                 if env_path.exists():
@@ -738,41 +1259,12 @@ def interactive_mode():
                         new_lines.append(f"DISCORD_ENABLED={str(DISCORD_ENABLED).lower()}")
                         
                     env_path.write_text("\n".join(new_lines), encoding="utf-8")
-            except Exception as e:
-                print(f"⚠️ Failed to save setting to .env: {e}")
-
-
-
-            print(f"\n🔔 Discord Notification: {status_text} (Saved)")
+            except Exception:
+                pass
+            
+            status_text = "ON" if DISCORD_ENABLED else "OFF"
+            print(f"\n🔔 Discord Notifications: {status_text}")
             time.sleep(1)
-
-        elif cmd == '6':
-            if not exporter:
-                print("⚠️  Exporter module not loaded. Check dependencies.")
-                continue
-            
-            jsonl_path = exporter.export_to_jsonl()
-            
-            if jsonl_path:
-                print("\n엑셀(CSV)로도 변환하시겠습니까?")
-                convert = input("  Convert to CSV? (Y/n): ").strip().lower()
-                if convert in ('', 'y', 'yes'):
-                    exporter.convert_to_csv(jsonl_path)
-            
-            input("\n  [Enter] Continue...")
-
-
-        elif cmd == '7':
-            client = SupersetDashboardMiddleware()
-            url = client.get_url()
-            print(f"\n🔬 Superset Dashboard: {url}")
-            try:
-                ok = client.open_dashboard()
-                if not ok:
-                    print("❌ 자동으로 브라우저를 열지 못했습니다. 위 URL을 직접 여세요.")
-            except ValueError as e:
-                print(f"❌ {e}")
-            input("\n  [Enter] Continue...")
 
 
         else:

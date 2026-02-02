@@ -1,24 +1,14 @@
 """
-LockBit 5.0 스파이더
-
-LockBit 5.0 (새 버전) 랜섬웨어 그룹 Leak Site 크롤러.
-기존 lockbit.py와 별도로 운영됨.
-
-주요 기능:
-- 리스트 페이지에서 피해 기업 정보 추출
-- 날짜 파싱 (예: "28 Jan, 2026, 17:12 UTC")
-- Views 추출
-- 상태 구분 (타이머 진행 중 / published)
-- 쿠키 지원 (CAPTCHA 우회용)
-
-참고: LockBit 5.0은 CAPTCHA가 필요할 수 있습니다.
-      config/lockbit5_cookies.json 파일에서 쿠키를 로드합니다.
+LockBit 5.0 Spider
+Target: LockBit 5.0 Leak Site (New Version)
+Features: Cookie support (CAPTCHA bypass), Date parsing, Status tracking
 """
 import scrapy
 import hashlib
 import json
 import re
 from datetime import datetime, timezone, timedelta
+from scrapy.exceptions import CloseSpider
 from tricrawl.items import LeakItem
 import yaml
 from pathlib import Path
@@ -29,15 +19,7 @@ logger = structlog.get_logger(__name__)
 
 class LockBit5Spider(scrapy.Spider):
     """
-    LockBit 5.0 랜섬웨어 그룹 Leak Site 스파이더.
-    
-    셀렉터:
-    - 피해자 목록: a.post-block
-    - 제목: .post-title
-    - 설명: .post-block-text
-    - 날짜: .updated-post-date span
-    - 조회수: .views div:last-child span
-    - 상태: .post-timer (진행 중) / .post-timer-end (published)
+    LockBit 5.0 Ransomware Spider
     """
     name = "lockbit 5.0"
     
@@ -49,11 +31,12 @@ class LockBit5Spider(scrapy.Spider):
         },
         "COOKIES_ENABLED": True,
         "DOWNLOAD_DELAY": 3,
+        "DOWNLOAD_TIMEOUT": 30,  # 쿠키 만료 시 빠른 실패 (기본 180초 → 30초)
     }
 
     def __init__(self, *args, **kwargs):
-        """YAML 설정을 로드하고 start_urls를 구성한다."""
         super().__init__(*args, **kwargs)
+        self.setup_alerts = []  # UI에 표시할 경고 리스트
 
         self.config = {}
         self.cookies = {}
@@ -80,7 +63,7 @@ class LockBit5Spider(scrapy.Spider):
             logger.error("Target URL NOT found in config for lockbit5.")
             self.start_urls = []
         
-        # 전역 설정 적용
+        # Global configs
         try:
             project_root = Path(__file__).resolve().parents[2]
             config_path = project_root / "config" / "crawler_config.yaml"
@@ -95,11 +78,11 @@ class LockBit5Spider(scrapy.Spider):
             self.days_limit = 14
         logger.info(f"Loaded Config - Global Days: {self.days_limit}")
         
-        # 쿠키 파일 로드 (있으면)
+        # Load cookies if available
         self._load_cookies()
 
     def _load_cookies(self):
-        """config/lockbit5_cookies.json에서 쿠키를 로드한다."""
+        """Load cookies from config/lockbit5_cookies.json"""
         try:
             project_root = Path(__file__).resolve().parents[2]
             cookie_path = project_root / "config" / "lockbit5_cookies.json"
@@ -111,14 +94,13 @@ class LockBit5Spider(scrapy.Spider):
                 # 쿠키 유효성 검사
                 dcap = self.cookies.get("dcap", "")
                 if not dcap or dcap == "PASTE_HERE":
-                    print("\n" + "="*60)
-                    print("🛑 [오류] LockBit 5.0 쿠키가 설정되지 않았습니다!")
-                    print(f"⚠️  설정 파일: {cookie_path}")
-                    print("🌐 주소: http://lockbitapt67g6rwzjbcxnww5efpg4qok6vpfeth7wx3okj52ks4wtad.onion/")
-                    print("👉 파일을 열고 Tor 브라우저의 'dcap' 쿠키 값을 입력해주세요.")
-                    print("="*60 + "\n")
-                    logger.error("Invalid cookie value (PASTE_HERE or empty). Stopping spider.")
-                    # 스파이더 강제 종료 (CloseSpider 예외 발생 시키는 것이 좋으나, 여기서 바로 리턴하면 start_requests에서 빈 리스트가 됨)
+                    msg = f"[bold red]✗ LockBit 5.0 쿠키 미설정[/bold red] ({cookie_path.name})"
+                    self.setup_alerts.append(msg)
+                    logger.error(
+                        "LockBit 5.0 Cookie Missing",
+                        config_path=str(cookie_path),
+                        instruction="Please update 'dcap' cookie in the JSON file."
+                    )
                     self.cookies = {} 
                 else:
                     logger.info(f"Loaded {len(self.cookies)} cookies from {cookie_path}")
@@ -137,7 +119,7 @@ class LockBit5Spider(scrapy.Spider):
 
 
     def start_requests(self):
-        """사용자 브라우저 헤더를 완벽하게 모방하여 요청."""
+        """Emulate browser headers and existing cookies"""
         
         # 기본 헤더 설정 (사용자가 제공한 값 기반)
         headers = {
@@ -176,12 +158,7 @@ class LockBit5Spider(scrapy.Spider):
             )
 
     def _parse_date(self, date_text: str) -> str:
-        """
-        날짜 문자열을 ISO 8601 형식으로 변환.
-        
-        예시 입력: "28 Jan, 2026, 17:12 UTC"
-        출력: "2026-01-28T17:12:00+00:00"
-        """
+        """Parse date string to ISO 8601"""
         if not date_text:
             return datetime.now(timezone.utc).isoformat()
             
@@ -207,15 +184,18 @@ class LockBit5Spider(scrapy.Spider):
             return None
 
     def parse(self, response):
-        """
-        메인 파서: a.post-block 요소를 순회하며 피해자 정보 추출.
-        """
+        """Main parser for victim list"""
         logger.info(f"LockBit5 Page Accessed: {response.url}")
         
-        # CAPTCHA 감지
-        if "captcha" in response.text.lower() or "challenge" in response.text.lower():
-            logger.warning("CAPTCHA detected! Please update cookies.")
-            return
+        # CAPTCHA/인증 실패 감지 → 즉시 종료
+        body_lower = response.text.lower()
+        if "captcha" in body_lower or "challenge" in body_lower or len(response.text) < 500:
+            logger.error("🛑 Cookie expired or CAPTCHA detected! Please update cookies.")
+            print("\n" + "="*60)
+            print("🛑 [오류] LockBit 5.0 쿠키가 만료되었습니다!")
+            print("👉 Tor 브라우저에서 새 쿠키를 복사해주세요.")
+            print("="*60 + "\n")
+            raise CloseSpider("cookie_expired")
         
         posts = response.css('a.post-block')
         logger.info(f"Found {len(posts)} victims.")

@@ -1,150 +1,216 @@
-# TriCrawl MVP
-TriCrawl은 다크웹 및 딥웹의 기업 정보 유출을 모니터링하는 OSINT 크롤러입니다.
-`main` 브랜치는 개발 과정의 브랜치로, 팀원들을 위한 상세 주석이 포함되어 있습니다.
-실제 배포 및 제출 브랜치는 `release` 브랜치로, 주석과 세부 문서 등이 제거되어 있습니다.
+# TriCrawl
 
-## MVP
-- docker-compose
-- Rich UI 콘솔
-- 9개 랜섬웨어 사이트 크롤링
-- Supabase DB
-- Superset 대시보드
-- 디스코드 알림
+![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
+![Scrapy](https://img.shields.io/badge/Scrapy-2.11-60A839?logo=scrapy&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white)
+![Superset](https://img.shields.io/badge/Apache%20Superset-Dashboard-007A85?logo=apache&logoColor=white)
 
-### 2026-01-31
-[`lockbit5` 스파이더 추가]
-- 3.0이 과거 데이터만 있어서, 5.0 페이지로 새롭게 추가함
-- 쿠키 등 헤더 스푸핑으로 크롤링 가능,
-- `config/lockbit5_cookies.json` 파일 관리는 필요함(최신 쿠키로 수정 필요)
-[기타]
-- Akira 스파이더를 비롯한 모든 스파이더 표준화 개선
+**Ransomware Leak Scraper & Monitor**
 
-### 2026-01-30
-[팀원 개발 스파이더] - 하나의 브랜치로 통합
-- `Pre-Request Dedup` 도입 통일, 이미 수집된 ID는 상세 페이지 요청 단계에서 즉시 스킵
-- 데이터 필드 표준화 및 조회수(`views`) 수집 추가
-- 하드코딩 제거 및 각종 오류 수정
-  
-[CLI 및 로직]
-- `RichProgress` 추가, 실시간 크롤링 상태(수집/스킵/에러) 시각화 및 한글 에러 메시지 제공
-- 크롤링 데이터에서 Telegram, Email, Discord 등 자동 추출하여 DB(`author_contacts`)에 jsonb 형식 저장
-- 성능 개선
+TriCrawl monitors ransomware leak sites and dark web forums. It scrapes new posts via Tor, filters them by keywords, and sends alerts to Discord.
+It is a project designed to demonstrate an automated pipeline from collection to visualization.
 
-### 2026-01-27
-- PostgreSQL(Supabase)로 DB 구성, 로컬 파일 아카이빙을 제거하고 Supabase DB(`darkweb_leaks`)를 SSOT로 격상
-- 데이터베이스 작업 중 알림이 너무 많이 와서 켜기/끄기 추가함(.env에 저장됨)
-- 기존 jsonl 저장 로직은 덤프 기능으로 변경, supabase db 데이터를 가져와서 jsonl로 저장
-- 중복 로직 개선 : `DeduplicationPipeline`에서 로드한 중복 ID를 스파이더에게 주입하여, 불필요한 Tor 요청을 네트워크 단에서 사전 차단
-- 그밖에 DarkNetArmy 스파이더 버그 수정 및 ID 생성 로직 URL해시 기반으로 통일해서 중복 처리 빨라짐
-
-
-## 특징
-
-- **Tor 통합**: 별도 설정 없이 `docker-compose` 한 번으로 Tor 프록시(Socks5h)와 연결됩니다.
-- **모듈형 구조**: 새로운 크롤러(스파이더)나 필터 로직(파이프라인)을 쉽게 끼워 넣을 수 있습니다.
-- **오탐지 최소화**: 타겟 키워드(국가/기업명)는 단독 매칭 시 CRITICAL로 분류되며, 조건부 키워드(leak 등의 포괄 의미 키워드)는 타겟과 함께 있을 때만 알림됩니다.
-- **데이터 보존**: 모든 수집 데이터는 Supabase를 통해 아카이빙되며, CLI를 통해 파일로 내보낼 수 있습니다.
-- **Discord 알림**: 위험도(Risk Level)에 따라 색상을 구분하여 즉각적인 알림을 보냅니다.
-- **속도 최적화 (New)**: Pre-Request Dedup 기술로 중복 데이터 발생 시 불필요한 상세 페이지 요청을 원천 차단합니다.
-- **위협 인텔리전스**: 게시글 본문에서 텔레그램, 이메일, 디스코드 등 연락처 정보를 자동 추출하여 저장합니다.
-
-## 아키텍처(초기)
-
-```mermaid
-flowchart TD
-    %% Nodes
-    Tor[("Tor Proxy (:9050)")]
-    
-    subgraph Spiders ["🕷️ Spiders"]
-        direction TB
-        Abyss[Abyss Spider]
-        DNA[DarkNetArmy Spider]
-    end
-
-    subgraph Middlewares ["🔌 Middlewares"]
-        ReqMW["Requests Middleware<br/>(Custom Downloader)"]
-    end
-
-    subgraph Pipelines ["🔄 Pipeline Chain"]
-        direction TB
-        Dedup["1. Deduplication<br/>(Hash Check)"]
-        Kwd["2. Keyword Filter<br/>(Risk Scoring)"]
-        Supa["3. Supabase Save<br/>(SSOT + Contacts)"]
-        Noti["4. Discord Notify<br/>(Async Webhook)"]
-    end
-
-    subgraph Output ["💾 Output"]
-        Supabase[("Supabase DB")]
-        Discord[("Discord")]
-    end
-
-    Abyss & DNA --> |1. Request| ReqMW
-
-    ReqMW <==> |"2. External Traffic (Req/Res)"| Tor
-    
-    ReqMW --> |3. Processed Data| Dedup
-    
-    Dedup --> |New Item| Kwd
-    Kwd --> |Filtered| Supa
-    Supa -.-> |"Persist & Extract"| Supabase
-    Supa --> |Saved| Noti
-    
-    Noti -- "Alert" --> Discord
-
-    %% Styling
-    style Tor fill:#e0e0e0,stroke:#333,stroke-width:2px
-    style Noti fill:#5865F2,stroke:#5865F2,color:#fff
-    style Discord fill:#5865F2,stroke:#5865F2,color:#fff
-    style Supabase fill:#3ecf8e,stroke:#3ecf8e,color:#fff
-    linkStyle 2 stroke:#3498db,stroke-width:4px
-```
-
-## 문서 가이드
-
-필요한 문서는 `docs/` 폴더에 정리되어 있습니다.
-
-| 주제 | 문서 링크 |
-|------|-----------|
-| **개발** | [개발자 가이드](./docs/developer_guide.md) |
-| **분석** | [데이터 분석 가이드](./docs/analytics_guide.md) |
-| **참조** | [파이프라인 명세](./docs/pipeline_reference.md) |
-| **규격** | **[개발 표준](./docs/development_standard.md)** (⭐ 필독) |
-| **상세** | [기능 명세서](./docs/atomic_specs.md) |
-
-## 시작하기
-
-### 1. 설치
-
-```bash
-git clone https://github.com/Tri-Best-3/tricrawl.git
-cd tricrawl
-
-python -m venv venv
-.\venv\Scripts\activate  # Windows
-pip install -r requirements.txt
-```
-
-### 2. 설정
-
-`.env` 파일을 만들고 Discord Webhook URL을 넣으세요.
-
-```bash
-cp .env.example .env
-```
-
-### 3. 실행
-
-관리자 콘솔(`main.py`)로 실행합니다.
-
-```bash
-python main.py
-```
-
-1. 메뉴에서 `1`번을 눌러 Docker(Tor)를 켭니다.
-2. `3`번을 눌러 크롤러를 선택해 실행합니다.
-3. 데이터 확인이 필요하면 `6`번을 눌러 DB 데이터를 내보내거나(JSONL/CSV), `5`번으로 알림을 켤 수 있습니다.
+랜섬웨어 유출 사이트 및 다크웹 포럼 크롤링, 모니터링 도구입니다. 
+Tor 네트워크를 통해 게시물을 수집하고, 키워드로 필터링하여 디스코드로 알림을 전송합니다.
+수집부터 시각화까지의 자동화 파이프라인을 구현한 자동화 도구입니다.
 
 ---
 
-기능 추가 시 **[development_standard.md](./docs/development_standard.md)**를 꼭 확인해주세요.
-특히 `items.py`의 데이터 컨트랙트(`risk_level` 등)를 지키지 않으면 알림이 오지 않거나 에러가 발생합니다.
+## Features (기능)
+
+- **Tor Integration**: Routes all scraper traffic through a local Tor SOCKS5 proxy (Dockerized).
+- **Dedup Logic**: Checks IDs before crawling detail pages to minimize Tor network requests.
+- **Keyword Filtering**: Matches content against a keyword list to assign risk levels.
+- **Discord Notification**: Sends alerts via Webhook for items matching specific criteria.
+- **Data Storage**: Archives all structured data into PostgreSQL (Supabase).
+- **Dashboard**: Simple visualization of leak trends using Apache Superset.
+
+- **Tor 연동**: 모든 트래픽을 Docker 내부의 Tor SOCKS5 프록시로 라우팅합니다.
+- **중복 제거**: 상세 페이지 요청 전, ID를 확인하여 불필요한 네트워크 부하를 줄입니다.
+- **키워드 필터**: 사전 정의된 키워드와 매칭하여 위험도를 분류합니다.
+- **디스코드 알림**: 조건에 맞는 데이터 수집 시 웹훅으로 알림을 보냅니다.
+- **데이터 저장**: 수집된 정형 데이터를 PostgreSQL(Supabase)에 적재합니다.
+- **대시보드**: Apache Superset을 이용해 수집 추이를 시각화합니다.
+
+### Supported Sites (수집 대상)
+
+TriCrawl currently supports 9 dark web sites, categorized into Ransomware Blogs and Underground Forums.
+현재 9개의 다크웹 사이트(랜섬웨어 블로그 및 포럼)를 지원합니다.
+
+| Spider Name | Type | Description |
+|:---|:---|:---|
+| **`abyss`** | Ransomware | Abyss Ransomware Blog |
+| **`akira`** | Ransomware | Akira Ransomware Blog |
+| **`lockbit`** | Ransomware | LockBit 3.0 Blog (Archive) |
+| **`lockbit5`** | Ransomware | LockBit 5.0 Blog (New) |
+| **`play_news`** | Ransomware | Play Ransomware Blog |
+| **`rhysida`** | Ransomware | Rhysida Ransomware Blog |
+| **`best_carding_world`** | Forum | Best Carding World (Carding) |
+| **`bfdx`** | Forum | BFDX (Hacking Forum) |
+| **`darknet_army`** | Forum | DarkNetArmy (XenForo) |
+
+## Architecture (아키텍처)
+
+The system consists of a CLI manager on the host and isolated Docker containers for the crawler, proxy, and dashboard.
+시스템은 호스트의 CLI 매니저와, Docker 컨테이너(크롤러/프록시/대시보드)로 구성됩니다.
+
+```mermaid
+graph TD
+    User["Administrator"] -->|Runs CLI| CLI["main.py (Host)"]
+
+    subgraph Docker_Network ["Docker Network"]
+        CLI -.->|1. Run| Crawler["Crawler Container<br>(Scrapy Worker)"]
+        CLI -.->|2. Manage| Infra
+        
+        subgraph Infra ["Infrastructure"]
+            Tor["Tor Proxy Container<br>(Socks5:9050)"]
+            Superset["Superset Container<br>(Dashboard)"]
+        end
+        
+        Crawler -->|Traffic| Tor
+        Tor -->|Anon Request| DarkWeb["Dark Web Sites"]
+        
+        Crawler -->|Save Data| Supabase[("Supabase DB<br>PostgreSQL")]
+        Crawler -->|Alert| Discord["Discord Webhook"]
+    end
+    
+    Superset <-->|Query| Supabase
+```
+
+## Prerequisites (사전 준비)
+
+- **Docker Desktop**: Must be installed and running.
+  (반드시 설치되어 있고, 실행 중이어야 합니다.)
+
+- **Python 3.10+**: For local execution of the CLI manager.
+  (CLI 매니저 실행을 위해 로컬 Python 3.10 이상이 필요합니다.)
+
+- **Supabase Project**: You need a hosted Supabase project.
+  (클라우드 Supabase 프로젝트가 필요합니다.)
+
+## Installation & Setup (설치 및 설정)
+
+### 1. Database Setup (Supabase)
+
+Run the following SQL in your Supabase SQL Editor to create the tables.
+
+Supabase 대시보드에서 아래 SQL을 실행하여 테이블을 생성하세요.
+
+```sql
+-- Main storage for leaks
+create table public.darkweb_leaks (
+  dedup_id text primary key,
+  source text not null,
+  title text,
+  url text,
+  content text,
+  risk_level text,
+  matched_keywords text[],
+  posted_at timestamp with time zone,
+  crawled_at timestamp with time zone default now(),
+  author text,
+  views int default 0,
+  category text,
+  site_type text,
+  author_contacts jsonb
+);
+
+-- Enable RLS (Optional, for public read)
+alter table public.darkweb_leaks enable row level security;
+create policy "Enable read access for all users" on public.darkweb_leaks for select using (true);
+```
+
+### 2. Environment Setup (.env)
+
+Clone the repository and configure dependencies.
+저장소를 복제하고 환경 설정을 진행합니다.
+```bash
+git clone https://github.com/Tri-Best-3/tricrawl.git
+cd tricrawl
+cp .env.example .env
+```
+
+Open `.env` and configure the following variables.
+
+`.env` 파일을 열어 다음 중요 변수들을 설정하세요.
+
+| Variable | Description |
+|:---|:---|
+| `DISCORD_WEBHOOK_URL` | Discord Channel Webhook URL for alerts |
+| `SUPABASE_URL` | Your Supabase Project URL |
+| `SUPABASE_KEY` | Your Supabase `anon` (public) Key |
+| `SUPERSET_CLOUD_URL` | (Optional) URL to your hosted Superset Dashboard |
+
+### 3. Install Python Dependencies
+
+Install local dependencies for the CLI manager.
+
+CLI 매니저 실행을 위한 로컬 라이브러리를 설치합니다.
+
+```bash
+python -m venv venv
+# Windows
+.\venv\Scripts\activate
+# Mac/Linux
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+## Usage (사용법)
+
+TriCrawl includes an interactive CLI manager (`main.py`) for easy operation.
+
+TriCrawl은 손쉬운 운영을 위해 대화형 CLI 매니저(`main.py`)를 제공합니다.
+
+```bash
+python main.py
+또는
+python main.py interactive
+```
+
+### Menu Guide
+1.  **Start Crawl**: Run the crawler worker. (Select a specific spider)
+    
+    (크롤러 워커를 실행합니다. 실행할 스파이더를 선택할 수 있습니다.)
+
+2.  **Monitoring Mode**: Run the auto-scheduler with Rich dashboard.
+    
+    (자동 스케줄러를 실행합니다. Rich 대시보드로 다음 실행 시간을 카운트다운합니다.)
+
+3.  **Open Dashboard**: Open the Superset analytics dashboard.
+
+    (Superset 분석 대시보드를 엽니다.)
+
+4.  **View Logs**: Open the latest log file.
+
+    (가장 최근의 로그 파일을 엽니다.)
+
+5.  **Start Docker (System On)**: Start Tor proxy and Database services. **(Run this first!)**
+
+    (Tor 프록시와 데이터베이스 서비스를 시작합니다. **가장 먼저 실행하세요!**)
+
+6.  **Stop Docker (System Off)**: Stop all services.
+
+    (모든 Docker 서비스를 중단합니다.)
+
+7.  **Export DB**: Dump crawled data to JSONL/CSV.
+
+    (수집된 데이터를 JSONL 또는 CSV로 내보냅니다.)
+
+8.  **Toggle Discord**: Enable/Disable notifications.
+
+    (Discord 알림 전송 여부를 켜고 끕니다.)
+
+## Documentation (문서)
+
+- **[Usage Guide (사용자 가이드)](./docs/usage_guide.md)**: Detailed CLI and Monitoring Mode instructions.
+- **[Analytics Guide (데이터 분석 가이드)](./docs/analytics_guide.md)**: DB schema and SQL query examples.
+- **[Superset Guide (대시보드 가이드)](./docs/superset_guide.md)**: How to use the visualization dashboard.
+
+---
+
+**Note**: This project is intended for educational and defensive security purposes only.
+
+**주의**: 본 프로젝트는 교육 및 방어 보안 목적으로만 사용되어야 합니다.

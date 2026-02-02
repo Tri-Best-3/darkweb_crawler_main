@@ -1,10 +1,97 @@
 services:
+  # -----------------------------------------------------
+  # Existing Service: Tor Proxy
+  # -----------------------------------------------------
   tor:
     image: dperson/torproxy:latest
     container_name: tricrawl-tor
     ports:
-      - "9050:9050"   #SOCKS5 프록시
-      - "9051:9051"   #제어 포트
+      - "9050:9050"   # SOCKS5 Proxy
+      - "9051:9051"   # Control Port
     environment:
       - TOR_NewCircuitPeriod=30
     restart: unless-stopped
+
+  # -----------------------------------------------------
+  # New Services: Superset
+  # -----------------------------------------------------
+  superset-cache:
+    image: redis:7
+    container_name: superset-cache
+    restart: unless-stopped
+    volumes:
+      - superset_cache:/data
+
+  superset-db:
+    image: postgres:15
+    container_name: superset-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+      POSTGRES_DB: superset
+    volumes:
+      - superset_db_home:/var/lib/postgresql/data
+
+  superset:
+    build: ./docker/superset
+    container_name: superset-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY}
+      - SQLALCHEMY_DATABASE_URI=${SUPERSET_METADATA_DB_URI}
+      - SUPERSET_LOAD_EXAMPLES=${SUPERSET_LOAD_EXAMPLES}
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./config/superset_config.py:/app/pythonpath/superset_config.py
+    depends_on:
+      - superset-cache
+      - superset-db
+
+  superset-init:
+    build: ./docker/superset
+    container_name: superset-init
+    env_file: .env
+    environment:
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY}
+      - SQLALCHEMY_DATABASE_URI=${SUPERSET_METADATA_DB_URI}
+    volumes:
+      - ./config/superset_config.py:/app/pythonpath/superset_config.py
+    command: >
+      bash -c "
+        superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
+        superset db upgrade &&
+        superset init"
+    depends_on:
+      - superset-db
+      - superset-cache
+
+  # -----------------------------------------------------
+  # New Service: Crawler Worker (Control Tower Managed)
+  # -----------------------------------------------------
+  crawler:
+    build:
+      context: .
+      dockerfile: docker/crawler/Dockerfile
+    image: tricrawl-worker:latest
+    container_name: tricrawl-worker
+    profiles: ["ops"]
+    env_file: .env
+    environment:
+      - TOR_PROXY_HOST=tricrawl-tor
+      - TOR_PROXY_PORT=9050
+      - PYTHONPATH=/app
+    network_mode: service:tor
+    volumes:
+      - ./tricrawl:/app/tricrawl
+      - ./tricrawl/logs:/app/tricrawl/logs
+      - ./config:/app/config
+      - ./tricrawl/data:/app/tricrawl/data
+    depends_on:
+      - tor
+
+volumes:
+  superset_cache:
+  superset_db_home:

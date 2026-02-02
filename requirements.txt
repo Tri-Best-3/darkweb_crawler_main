@@ -18,3 +18,5 @@ structlog>=24.1.0
 
 # CLI UI
 rich>=13.0.0
+
+supabase>=2.0.0
