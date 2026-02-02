@@ -2,6 +2,8 @@
 # 전역 설정
 global:
   days_to_crawl: 30        # 최근 30일 데이터 수집, 첫 빌딩 시 권장. 이후 1일~2일 단위로 수정 후 스케쥴링 권장
+  timeout_seconds: 60      # 기본 타임아웃
+  max_retries: 2           # 기본 재시도 횟수
 
 # 스파이더별 설정
 spiders:
@@ -52,6 +54,8 @@ spiders:
   
   bfdx:
     target_url: "http://bfdxjkv5e2z3ilrifzbnvxxvhbzsj67akjpj3zc6smzr4vv6oz565gyd.onion/"
+    timeout_seconds: 30    # 느린 사이트이므로 타임아웃 짧게 (Fail Fast)
+    max_retries: 1
     endpoints:
       buy_sell: "/forums/buy-sell.70/"
       worldwide_news: "/forums/worldwide-news.66/"

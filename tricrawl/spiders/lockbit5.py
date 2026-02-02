@@ -36,6 +36,7 @@ class LockBit5Spider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.setup_alerts = []  # UI에 표시할 경고 리스트
 
         self.config = {}
         self.cookies = {}
@@ -93,14 +94,13 @@ class LockBit5Spider(scrapy.Spider):
                 # 쿠키 유효성 검사
                 dcap = self.cookies.get("dcap", "")
                 if not dcap or dcap == "PASTE_HERE":
-                    print("\n" + "="*60)
-                    print("🛑 [오류] LockBit 5.0 쿠키가 설정되지 않았습니다!")
-                    print(f"⚠️  설정 파일: {cookie_path}")
-                    print("🌐 주소: http://lockbitapt67g6rwzjbcxnww5efpg4qok6vpfeth7wx3okj52ks4wtad.onion/")
-                    print("👉 파일을 열고 Tor 브라우저의 'dcap' 쿠키 값을 입력해주세요.")
-                    print("="*60 + "\n")
-                    logger.error("Invalid cookie value (PASTE_HERE or empty). Stopping spider.")
-                    # 스파이더 강제 종료 (CloseSpider 예외 발생 시키는 것이 좋으나, 여기서 바로 리턴하면 start_requests에서 빈 리스트가 됨)
+                    msg = f"[bold red]✗ LockBit 5.0 쿠키 미설정[/bold red] ({cookie_path.name})"
+                    self.setup_alerts.append(msg)
+                    logger.error(
+                        "LockBit 5.0 Cookie Missing",
+                        config_path=str(cookie_path),
+                        instruction="Please update 'dcap' cookie in the JSON file."
+                    )
                     self.cookies = {} 
                 else:
                     logger.info(f"Loaded {len(self.cookies)} cookies from {cookie_path}")

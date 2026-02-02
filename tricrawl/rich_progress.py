@@ -40,6 +40,9 @@ class RichProgress:
         
         # Live 컨텍스트
         self.live = None
+        
+        # 크리티컬 경고 저장용
+        self.critical_warnings = []
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -93,17 +96,28 @@ class RichProgress:
             padding=(0, 1),
             width=50,
         ))
-
+    
     def _build_display(self):
         """Create display group (Progress Bar + Recent Items)."""
         from rich.text import Text
+
+        # 경고 패널 추가
+        warning_box = ""
+        if self.critical_warnings:
+            warning_box = Text.from_markup("\n" + "\n".join(self.critical_warnings))
+
         return Group(
             self.progress,
             Text.from_markup(f"  {self.last_item_text}"),
+            warning_box
         )
 
     def spider_opened(self, spider):
         """Initialize progress bar on spider open."""
+        # 스파이더로부터 초기 경고 가져오기
+        if hasattr(spider, "setup_alerts"):
+            self.critical_warnings.extend(spider.setup_alerts)
+
         self._print_startup_status(spider)
         self.console.print()  # 빈 줄
         
@@ -145,7 +159,7 @@ class RichProgress:
             pre_dedup_text = f"{pre_dedup_skipped}건 일치"
         else:
             pre_dedup_text = "없음"
-        
+
         result_lines = [
             f"📦  [bold]신규 수집:[/bold] [bold green]{scraped}[/bold green]건",
             f"🔄  [bold]Pre-Dedup:[/bold] {pre_dedup_text}",
@@ -154,9 +168,16 @@ class RichProgress:
             f"❌  [bold]에러:[/bold] [bold red]{err_count}[/bold red]건",
         ]
         
+        # 마지막 정리에 경고 포함
+        final_lines = result_lines.copy()
+        if self.critical_warnings:
+            final_lines.append("")
+            final_lines.append("[bold red]⚠️  Critical Actions Required:[/bold red]")
+            final_lines.extend(self.critical_warnings)
+        
         self.console.print()
         self.console.print(Panel(
-            "\n".join(result_lines),
+            "\n".join(final_lines),
             title="[bold green]✨ Crawling Completed[/bold green]",
             border_style="green",
             padding=(0, 1),

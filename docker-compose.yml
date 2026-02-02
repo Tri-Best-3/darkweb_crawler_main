@@ -85,7 +85,10 @@ services:
       - PYTHONPATH=/app
     network_mode: service:tor
     volumes:
+      - ./tricrawl:/app/tricrawl
       - ./tricrawl/logs:/app/tricrawl/logs
+      - ./config:/app/config
+      - ./tricrawl/data:/app/tricrawl/data
     depends_on:
       - tor
 
