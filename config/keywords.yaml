@@ -19,6 +19,7 @@ targets:
   # 국가/도시
   - usa
   - united states
+  - american
   - us
   - canada
   - india
@@ -26,8 +27,10 @@ targets:
   - indonesia
   - spain
   - germany
+  - japan
   - new york
   - california
+  - massachusetts
   
   # 섹터
   - bank
@@ -35,6 +38,8 @@ targets:
   - telecom
   - hospital
   - medical records
+  - laborator
+  - industry
 
   # 기업명
   - samsung

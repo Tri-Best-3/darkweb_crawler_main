@@ -8,6 +8,7 @@ import yaml
 from pathlib import Path
 from tricrawl.items import LeakItem
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 import re
 import hashlib
 
@@ -85,6 +86,49 @@ class BestCardingWorldSpider(scrapy.Spider):
         self.default_max_pages = 5
         logger.info(f"Loaded Config - Global Days: {self.days_limit}, URLs: {len(self.start_urls)}")
 
+    def get_max_pages_for_board(self, board_key: str) -> int:
+        try:
+            v = (self.board_limits or {}).get(board_key)
+            if v is None:
+                return int(self.default_max_pages)
+            return int(v)
+        except Exception:
+            return int(self.default_max_pages)
+        
+    def _next_page_url(self, response, page: int) -> str | None:
+        """
+        phpBB forum pagination (direct):
+        /viewforum.php?f=30&start=50 형태로 직접 이동
+        - f: 게시판 ID 유지
+        - start: (page * TOPICS_PER_PAGE)로 계산
+        """
+        TOPICS_PER_PAGE = 25  # 필요하면 10/20/50으로 조정
+        new_start = page * TOPICS_PER_PAGE  # page=1 -> start=25, page=2 -> start=50 ...
+
+        u = urlparse(response.url)
+        qs = parse_qs(u.query)
+
+        # f 파라미터가 없으면 다음 페이지를 만들 수 없음
+        # (endpoint가 viewforum.php?f=xx 형태여야 함)
+        if "f" not in qs or not qs["f"]:
+            logger.warning("Missing forum id (f=) in url; cannot paginate", url=response.url)
+            return None
+
+        # start만 덮어쓰기
+        qs["start"] = [str(new_start)]
+
+        new_query = urlencode(qs, doseq=True)
+
+        # 혹시 다른 경로로 들어왔다면 viewforum.php로 고정하고 싶을 때:
+        path = u.path
+        # 예: path가 /viewforum.php가 아닐 수 있으면 강제
+        if not path.endswith("viewforum.php"):
+            # 현재 프로젝트 구조상 대부분 viewforum.php일 텐데, 안전장치로 둠
+            path = "/viewforum.php"
+
+        return urlunparse((u.scheme, u.netloc, path, u.params, new_query, u.fragment))
+
+
     def start_requests(self):
         base = (self.target_url or "").rstrip("/")
         for key, path in (self.endpoints or {}).items():
@@ -93,7 +137,7 @@ class BestCardingWorldSpider(scrapy.Spider):
             yield scrapy.Request(
                 url=full_url,
                 callback=self.parse,
-                meta={"category": key, "board_key": key},
+                meta={"category": key, "board_key": key, "page": 1},
                 dont_filter=True,
             )
 
@@ -120,7 +164,14 @@ class BestCardingWorldSpider(scrapy.Spider):
         
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_limit)
 
+        board_key = response.meta.get("board_key") or response.meta.get("category") or "default"
+        page = int(response.meta.get("page", 1))
+        max_pages = self.get_max_pages_for_board(board_key)
+
+        row_count = 0
+
         for row in response.css("li.row"):
+            row_count += 1
             title = row.css("a.topictitle::text").get()
             href  = row.css("a.topictitle::attr(href)").get()
 
@@ -177,6 +228,16 @@ class BestCardingWorldSpider(scrapy.Spider):
                 meta=response.meta, 
                 dont_filter=True,
             )
+
+        if page < max_pages:
+            next_url = self._next_page_url(response, page)
+            if next_url and row_count > 0:
+                yield scrapy.Request(
+                    url=next_url,
+                    callback=self.parse,
+                    meta={**response.meta, "page": page + 1},
+                    dont_filter=True,
+                )
 
     def parse_topic(self, response, item: LeakItem):
         """Parses thread content."""
