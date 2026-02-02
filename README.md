@@ -5,6 +5,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white)
 ![Superset](https://img.shields.io/badge/Apache%20Superset-Dashboard-007A85?logo=apache&logoColor=white)
+<img width="970" height="584" alt="tricrawl" src="https://github.com/user-attachments/assets/7362237d-49c6-40fd-8da7-438b325add83" />
 
 **Ransomware Leak Scraper & Monitor**
 
