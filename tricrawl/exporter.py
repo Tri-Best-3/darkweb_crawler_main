@@ -1,7 +1,7 @@
 """
 TriCrawl Data Exporter
-Supabase에 저장된 데이터를 CLI를 통해 로컬 파일(JSONL, CSV)로 내보내는 모듈입니다.
-Rich 라이브러리를 사용하여 진행 상태를 시각화합니다.
+Exports Supabase data to local JSONL/CSV files.
+Uses Rich for progress visualization.
 """
 import os
 from datetime import datetime
@@ -115,9 +115,6 @@ class DataExporter:
             self.console.print(f"\n[bold green]✅ CSV 변환 완료![/bold green]")
             self.console.print(f"📄 파일 위치: [underline]{csv_path}[/underline]")
             
-            # 윈도우라면 엑셀 실행 (사용자 요청으로 제거됨)
-            # if os.name == 'nt':
-            #     os.startfile(csv_path)
-                
+
         except Exception as e:
             self.console.print(f"[bold red]❌ CSV 변환 실패:[/bold red] {e}")

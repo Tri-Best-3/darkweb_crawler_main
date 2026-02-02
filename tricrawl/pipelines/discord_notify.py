@@ -1,6 +1,6 @@
 """
-Discord 알림 파이프라인
-- Queue와 Thread를 사용해 순차적으로, 천천히 전송 (Rate Limit 회피)
+Discord Notification Pipeline
+- Implements Threaded Queue for Rate Limit handling
 """
 import time
 import requests
@@ -11,61 +11,49 @@ from datetime import datetime, timezone, timedelta
 
 logger = structlog.get_logger(__name__)
 
-# 위험도별 색상
+# Risk Levels
 RISK_COLORS = {
     "HIGH": 0xe74c3c,    # 빨강
     "MEDIUM": 0xf39c12,  # 주황
     "LOW": 0x2ecc71,     # 초록
 }
 
-# KST
+# KST Timezone
 KST = timezone(timedelta(hours=9))
 
 
 class DiscordNotifyPipeline:
     """
-    Discord 웹훅 알림 파이프라인 (Rate Limit Safe Version).
-    
-    구조:
-    - process_item: 큐에 아이템 적재 (Non-blocking)
-    - Worker Thread: 큐에서 하나씩 꺼내 전송 후 2초 대기 (Throttling)
-    
-    이점:
-    - 429 에러를 사전에 방지 (Token Bucket 스타일)
-    - 메인 크롤링 속도에 영향 주지 않음
+    Discord Webhook Pipeline (Rate Limit Safe)
     """
     
     def __init__(self, webhook_url: str, stats=None):
         self.webhook_url = webhook_url
         self._stats = stats
         
-        # 전송 큐 및 워커 스레드 관리
         self.queue = queue.Queue()
         self.worker_thread = None
-        self.interval = 1.0  # 메시지 간 안전 간격 (초)
+        self.interval = 1.0
         
     @classmethod
     def from_crawler(cls, crawler):
         webhook_url = crawler.settings.get("DISCORD_WEBHOOK_URL")
         if not webhook_url:
-            logger.warning("DISCORD_WEBHOOK_URL 미설정, 알림 비활성화")
-            # URL이 없어도 파이프라인은 생성되나 기능은 동작 안 함
+            logger.warning("DISCORD_WEBHOOK_URL missing, notifications disabled")
             return cls(None, crawler.stats)
         return cls(webhook_url, crawler.stats)
 
     def open_spider(self, spider=None):
-        """스파이더 시작 시 워커 스레드 가동."""
         if self.webhook_url:
             self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self.worker_thread.start()
-            logger.info("Discord 알림 워커 시작 (Interval: 2.0s)")
+            logger.info("Discord Worker Started (Interval: 1.0s)")
 
         if self._stats:
             self._stats.set_value("discord_notify/sent", 0)
     
     def process_item(self, item, spider=None):
-        """아이템을 큐에 넣고 즉시 반환."""
-        # NONE 등급은 알림 발송 제외 (Archive Only)
+        # Skip NONE risk items (Archive Only)
         if item.get("risk_level") == "NONE":
             return item
             
@@ -74,26 +62,21 @@ class DiscordNotifyPipeline:
         return item
 
     def close_spider(self, spider=None):
-        """남은 큐를 모두 처리하고 종료."""
+        """Flush queue and exit."""
         if self.worker_thread and self.worker_thread.is_alive():
-            # 종료 시그널(None) 전송
             self.queue.put(None)
             
-            # 남은 알림이 많으면 시간이 걸릴 수 있음을 알림
             q_size = self.queue.qsize()
             if q_size > 0:
-                logger.info(f"남은 알림 {q_size}개 전송 대기 중... (예상 소요: {q_size * self.interval}초)")
+                logger.info(f"Flushing {q_size} items... (Est: {q_size * self.interval}s)")
             
-            # 스레드 종료 대기
             self.worker_thread.join()
-            logger.info("Discord 알림 워커 종료")
+            logger.info("Discord Worker Stopped")
 
     def _worker_loop(self):
-        """백그라운드에서 큐를 소비하며 알림 전송."""
         while True:
             item = self.queue.get()
             
-            # 종료 시그널
             if item is None:
                 self.queue.task_done()
                 break
@@ -101,11 +84,10 @@ class DiscordNotifyPipeline:
             try:
                 self._send_discord_webhook(item)
             except Exception as e:
-                logger.error(f"알림 전송 중 예외 발생: {e}")
+                logger.error(f"Notification Error: {e}")
             finally:
                 self.queue.task_done()
                 
-            # Rate Limit 방지를 위한 강제 휴식
             time.sleep(self.interval)
 
     def _send_discord_webhook(self, item):
@@ -138,10 +120,7 @@ class DiscordNotifyPipeline:
                 retry_after = self._get_retry_after(response)
                 logger.warning(f"Rate Limit 429! Sleeping {retry_after}s")
                 time.sleep(retry_after)
-                # 429는 횟수 차감 없이 재시도하려면 continue 전에 attempt 조작 필요하지만,
-                # 현재 구조(2초 텀)에서는 429가 거의 안 뜸. 
-                # 만약 뜨면 재시도 로직을 타거나, 아예 429 전용 루프를 넣어도 됨.
-                # 여기서는 2초 텀이 있으므로 단순 재시도로 충분함.
+                # Simple retry logic (429 usually handled by pre-emptive throttling)
                 continue
 
             # 기타 서버 에러

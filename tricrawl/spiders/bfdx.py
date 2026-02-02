@@ -90,17 +90,29 @@ class BfdxSpider(scrapy.Spider):
             )
 
     def parse(self, response):
-        logger.info(f"BFDX Page Accessed: {response.url}")
+        logger.info(f"Scanning: {response.url}")
 
         # 1. Main Page / Forum List (Existing Logic)
         nodes = response.css("div.node.node--forum")
         if nodes:
             logger.info(f"Found {len(nodes)} forum nodes.")
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_limit)
+            
             for forum in nodes:
                 title = forum.css("a.node-extra-title::text").get()
                 url = forum.css("a.node-extra-title::attr(href)").get()
                 author = forum.css("div.node-extra-row .username::text").get() or "Unknown"
                 timestamp = forum.css("div.node-extra-row time::attr(datetime)").get()
+                
+                # 날짜 필터링 추가
+                if timestamp:
+                    try:
+                        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        if dt < cutoff:
+                            logger.debug(f"Skipping old forum node: {title[:30] if title else 'N/A'}")
+                            continue
+                    except ValueError:
+                        pass
 
                 if not title or not url:
                     continue
@@ -116,7 +128,7 @@ class BfdxSpider(scrapy.Spider):
                         "author": author,
                         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
                         "category": response.meta.get("category", "Main"),
-                        "views": None, # Index node usually doesn't show views for last post
+                        "views": None,
                     }
                 )
 
@@ -171,7 +183,7 @@ class BfdxSpider(scrapy.Spider):
                         "timestamp": timestamp_str or datetime.now(timezone.utc).isoformat(),
                         "category": response.meta.get("category", "Main"),
                         "views": views,
-                        "dedup_id": dedup_id,  # 상세 페이지에서 사용
+                        "dedup_id": dedup_id,
                     }
                 )
 
@@ -193,8 +205,33 @@ class BfdxSpider(scrapy.Spider):
         """상세 글 페이지에서 본문(content) 추출 + 작성자 보강 + 본문 정제"""
         title = response.meta["title"]
         author = response.meta["author"]
-        timestamp = response.meta["timestamp"]
         category = response.meta["category"]
+
+        # 상세 페이지에서 실제 게시 날짜 추출
+        page_timestamp = response.css("time.u-dt::attr(datetime)").get()
+        if not page_timestamp:
+            page_timestamp = response.css("time::attr(datetime)").get()
+        
+        # fallback: 목록 페이지에서 전달된 timestamp 사용
+        timestamp_to_check = page_timestamp or response.meta.get("timestamp")
+        
+        # 날짜 필터링 (30일 이전 데이터 스킵)
+        # timestamp가 없거나 파싱 실패하면 스킵 (안전장치)
+        if not timestamp_to_check:
+            logger.info(f"SKIPPED (no timestamp): {title[:40]}")
+            return
+            
+        try:
+            dt = datetime.fromisoformat(timestamp_to_check.replace('Z', '+00:00'))
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_limit)
+            if dt < cutoff:
+                logger.info(f"SKIPPED (old): {title[:40]} ({timestamp_to_check[:10]})")
+                return
+        except ValueError:
+            logger.info(f"SKIPPED (parse error): {title[:40]}")
+            return
+        
+        timestamp = timestamp_to_check
 
         # 작성자 보강
         page_author = response.css("span.username::text").get() or response.css("a.username::text").get()
@@ -246,5 +283,15 @@ class BfdxSpider(scrapy.Spider):
 
         # dedup_id는 리스트 페이지에서 이미 생성됨 (Pre-Request Dedup)
         item["dedup_id"] = response.meta.get("dedup_id")
+
+        # 최종 날짜 검증 - days_limit 이전 데이터는 스킵
+        try:
+            ts_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_limit)
+            if ts_dt < cutoff:
+                logger.info(f"SKIPPED (old): {title[:40]} ({timestamp[:10]})")
+                return
+        except (ValueError, AttributeError):
+            pass
 
         yield item

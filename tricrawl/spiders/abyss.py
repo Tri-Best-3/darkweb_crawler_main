@@ -18,12 +18,7 @@ logger = structlog.get_logger(__name__)
 
 class AbyssSpider(scrapy.Spider):
     """
-    Abyss 랜섬웨어 유출 사이트 크롤러.
-
-    데이터 컨트랙트:
-    - LeakItem의 필수 필드(source/title/url/author/timestamp)를 반드시 채움
-    - dedup_id는 "제목+본문" 기반으로 안정적으로 생성
-    - content는 요약/링크 포함 가능 (파이프라인에서 키워드 매칭 대상)
+    Abyss Ransomware Spider
     """
     
     name = "abyss"
@@ -33,9 +28,7 @@ class AbyssSpider(scrapy.Spider):
         'DOWNLOAD_TIMEOUT': 120,
         # Abyss는 단일 페이지 또는 단순 구조이므로 동시성 낮춤
         'CONCURRENT_REQUESTS': 1,
-        # Abyss는 전체 목록을 매번 가져오므로, 실행에서 보이지 않은 캐시는 정리
         'DEDUP_PRUNE_UNSEEN': True,
-        # .onion 요청은 requests 기반 다운로드로 처리 (Scrapy 기본 다운로더의 socks 미지원 회피)
         'DOWNLOADER_MIDDLEWARES': {
             'tricrawl.middlewares.darknet_requests.RequestsDownloaderMiddleware': 543,
             'tricrawl.middlewares.TorProxyMiddleware': None,
@@ -47,10 +40,9 @@ class AbyssSpider(scrapy.Spider):
         """YAML 설정 로드 후 start_urls를 구성한다."""
         super().__init__(*args, **kwargs)
         
-        # 설정 파일 로드 (Namespaced)
+        # Config load
         self.config = {}
         try:
-            # __file__ 기준으로 프로젝트 루트 찾기 (tricrawl/spiders/abyss.py -> ../../)
             self.project_root = Path(__file__).resolve().parent.parent.parent
             config_path = self.project_root / "config" / "crawler_config.yaml"
             
@@ -64,7 +56,7 @@ class AbyssSpider(scrapy.Spider):
         except Exception as e:
             logger.error(f"Config load failed: {e}")
             
-        # URL 설정
+        # Target URL
         target = self.config.get('target_url')
         if target:
             self.start_urls = [target]
@@ -74,35 +66,18 @@ class AbyssSpider(scrapy.Spider):
 
     def parse(self, response):
         """Abyss 메인 페이지 파싱 -> data.js 요청."""
-        # 정적 페이지가 비어있으므로 data.js를 찾아 요청
-        logger.info(f"Abyss 메인 페이지 접근: {response.url}")
+        logger.info(f"Abyss Main Page: {response.url}")
         
-        # data.js URL 유추 (HTML 내 <script src="static/data.js">)
-        # 상대 경로 처리
         data_js_url = response.urljoin("static/data.js")
         yield scrapy.Request(data_js_url, callback=self.parse_data_js, errback=self.errback_data_js)
 
     def parse_data_js(self, response):
         """
-        data.js 파싱 (JSON 데이터 추출).
-
-        - JS 배열을 Python 객체로 변환한 뒤 LeakItem으로 매핑
-        - Spider 단계에서 필수 필드를 채우고, 파이프라인에서 후속 처리
-        - 생성 데이터의 소비처:
-          - dedup_id → `tricrawl/pipelines/dedup.py:DeduplicationPipeline.get_hash`
-          - title/content → `tricrawl/pipelines/keyword_filter.py:KeywordFilterPipeline.process_item`
-          - content → `tricrawl/pipelines/archive.py:ArchivePipeline._extract_contacts`
-          - timestamp/category → `tricrawl/pipelines/discord_notify.py:DiscordNotifyPipeline._build_embed`
+        Parse data.js to extract JSON data.
         """
-        logger.info(f"data.js 로드 성공: {len(response.text)} bytes")
+        logger.info(f"data.js loaded: {len(response.text)} bytes")
         
-        # 디버그용 저장
-        try:
-            debug_path = self.project_root / "debug_data.js"
-            with open(debug_path, "w", encoding="utf-8") as f:
-                f.write(response.text)
-        except Exception:
-            pass
+
 
         try:
             # 1. Capture the array [ ... ]
@@ -110,10 +85,7 @@ class AbyssSpider(scrapy.Spider):
             if match:
                 js_str = match.group(1)
                 
-                # 2. Fix JS String Concatenation used in 'full' field
-                # Pattern: 'text' + \n 'more text' -> 'textmore text'
-                # Remove ' + ' and surrounding whitespace/newlines to merge strings
-                # This makes it a valid Python string literal
+                # 2. Fix JS String Concatenation
                 cleaned_str = re.sub(r"'\s*\+\s*(?:[\r\n]+)?\s*'", "", js_str)
                 
                 # 3. Parse using Python AST or Fallback
@@ -123,15 +95,9 @@ class AbyssSpider(scrapy.Spider):
                 except Exception as e_ast:
                     logger.warning(f"AST parsing failed: {e_ast}. Trying generic regex fallback...")
                     
-                    # Fallback: 정규식으로 '객체' 패턴을 찾아 하나씩 파싱 시도
-                    # { 'header': ..., 'text': ... } 패턴 추정
-                    # 완벽하지 않으나, 일부라도 건지기 위함
+                    # Fallback: Regex parsing for simple objects
                     try:
                         # Find all dict-like structures (very basic regex)
-                        # This assumes keys are quoted or unquoted standard keys
-                        # Note: This is a last resort. Abyss data usually valid JS array.
-                        # Simple regex to extract title/header/name and description/text/full
-                        # This avoids full JSON parsing issues
                         data = []
                         entries_raw = re.findall(r"\{.*?\}", cleaned_str, re.DOTALL)
                         for raw in entries_raw:
@@ -180,7 +146,7 @@ class AbyssSpider(scrapy.Spider):
                     item["author"] = "Abyss"
                     item["timestamp"] = current_time
                     item["site_type"] = "Ransomware"
-                    item["category"] = "Ransomware" # 랜섬웨어는 보통 단일 페이지라 General로 통일
+                    item["category"] = "Ransomware"
                     item["views"] = None
 
                     # 내용 기반 ID로 업데이트 감지
@@ -212,7 +178,7 @@ class AbyssSpider(scrapy.Spider):
                     yield item
                     
             else:
-                logger.warning("data.js에서 JSON 배열 패턴을 찾지 못했습니다.")
+                logger.warning("JSON array not found in data.js")
         
         except Exception as e:
             logger.error(f"data.js 파싱 실패: {e}")
