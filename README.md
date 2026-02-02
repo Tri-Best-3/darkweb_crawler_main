@@ -11,7 +11,8 @@
 TriCrawl monitors ransomware leak sites and dark web forums. It scrapes new posts via Tor, filters them by keywords, and sends alerts to Discord.
 It is a project designed to demonstrate an automated pipeline from collection to visualization.
 
-랜섬웨어 유출 사이트 및 다크웹 포럼 모니터링 도구입니다. Tor 네트워크를 통해 게시물을 수집하고, 키워드로 필터링하여 디스코드로 알림을 전송합니다.
+랜섬웨어 유출 사이트 및 다크웹 포럼 크롤링, 모니터링 도구입니다. 
+Tor 네트워크를 통해 게시물을 수집하고, 키워드로 필터링하여 디스코드로 알림을 전송합니다.
 수집부터 시각화까지의 자동화 파이프라인을 구현한 자동화 도구입니다.
 
 ---
@@ -174,17 +175,17 @@ python main.py interactive
     
     (크롤러 워커를 실행합니다. 실행할 스파이더를 선택할 수 있습니다.)
 
-2.  **Open Dashboard**: Open the Superset analytics dashboard.
+2.  **Monitoring Mode**: Run the auto-scheduler with Rich dashboard.
+    
+    (자동 스케줄러를 실행합니다. Rich 대시보드로 다음 실행 시간을 카운트다운합니다.)
+
+3.  **Open Dashboard**: Open the Superset analytics dashboard.
 
     (Superset 분석 대시보드를 엽니다.)
 
-3.  **View Logs**: Open the latest log file.
+4.  **View Logs**: Open the latest log file.
 
     (가장 최근의 로그 파일을 엽니다.)
-
-4.  **Export DB**: Dump crawled data to JSONL/CSV.
-
-    (수집된 데이터를 JSONL 또는 CSV로 내보냅니다.)
 
 5.  **Start Docker (System On)**: Start Tor proxy and Database services. **(Run this first!)**
 
@@ -194,12 +195,17 @@ python main.py interactive
 
     (모든 Docker 서비스를 중단합니다.)
 
-7.  **Toggle Discord**: Enable/Disable notifications.
+7.  **Export DB**: Dump crawled data to JSONL/CSV.
+
+    (수집된 데이터를 JSONL 또는 CSV로 내보냅니다.)
+
+8.  **Toggle Discord**: Enable/Disable notifications.
 
     (Discord 알림 전송 여부를 켜고 끕니다.)
 
 ## Documentation (문서)
 
+- **[Usage Guide (사용자 가이드)](./docs/usage_guide.md)**: Detailed CLI and Monitoring Mode instructions.
 - **[Analytics Guide (데이터 분석 가이드)](./docs/analytics_guide.md)**: DB schema and SQL query examples.
 - **[Superset Guide (대시보드 가이드)](./docs/superset_guide.md)**: How to use the visualization dashboard.
 
